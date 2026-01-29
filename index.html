@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – Chunks + Biomes + Sprint + Jour/Nuit + Mob</title>
+<title>MiniCraft – Chunks + Biomes (Dunes + Cactus)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -12,7 +12,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
 #crosshair::before{width:12px;height:2px;top:5px}
 #crosshair::after{width:2px;height:12px;left:5px}
 
-#hotbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:10px;padding:10px;background:rgba(0,0,0,.4);border-radius:16px;z-index:4}
+#hotbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:10px;padding:10px;background:rgba(0,0,0,.4);border-radius:16px;z-index:4;flex-wrap:wrap;justify-content:center;max-width:92vw}
 .slot{width:44px;height:44px;border-radius:12px;border:2px solid rgba(255,255,255,.3);display:grid;place-items:center;color:white;position:relative;user-select:none}
 .slot.selected{border-color:white;transform:translateY(-2px)}
 .chip{width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.25)}
@@ -28,16 +28,16 @@ small{opacity:.8}
 <div id="crosshair"></div>
 
 <div id="ui">
-  <div style="text-align:center;max-width:600px;padding:18px">
+  <div style="text-align:center;max-width:650px;padding:18px">
     <h1 style="margin:0 0 10px">MiniCraft</h1>
     <p style="margin:0 0 12px;line-height:1.35">
       Clique pour capturer la souris.<br>
       <b>WASD</b> bouger · <b>Souris</b> regarder · <b>Espace</b> sauter (1 fois/appui)<br>
-      <b>Shift</b> courir (FOV) · <b>N</b> pause jour/nuit · <b>1–6</b> blocs<br>
-      <b>Clic gauche</b> casser / taper mob · <b>Clic droit</b> poser
+      <b>Shift</b> courir (FOV) · <b>N</b> pause jour/nuit · <b>1–7</b> blocs<br>
+      <b>Clic gauche</b> casser/taper mob · <b>Clic droit</b> poser
     </p>
     <button id="start">Jouer</button><br>
-    <small>(Biomes + chunks autour de toi)</small>
+    <small>(Désert amélioré : dunes + cactus)</small>
   </div>
 </div>
 
@@ -68,7 +68,7 @@ const SPRINT_FOV = 88;
 const FOV_SPEED = 10;
 let currentFov = BASE_FOV;
 
-const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.1, 600);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.1, 650);
 camera.position.set(8, 25, 18);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -91,12 +91,13 @@ scene.add(sunBall);
 
 /* ---------- BLOCS ---------- */
 const BLOCKS = [
-  {name:"Herbe", color:0x4caf50}, // 0
-  {name:"Terre", color:0x7a5230}, // 1
-  {name:"Pierre", color:0x9e9e9e},// 2
-  {name:"Bois",  color:0x8d6e63}, // 3
-  {name:"Sable", color:0xd8c38a}, // 4
-  {name:"Neige", color:0xf5f7ff}  // 5
+  {name:"Herbe",  color:0x4caf50}, // 0
+  {name:"Terre",  color:0x7a5230}, // 1
+  {name:"Pierre", color:0x9e9e9e}, // 2
+  {name:"Bois",   color:0x8d6e63}, // 3
+  {name:"Sable",  color:0xd8c38a}, // 4
+  {name:"Neige",  color:0xf5f7ff}, // 5
+  {name:"Cactus", color:0x2e8b57}, // 6
 ];
 let selectedBlock = 0;
 
@@ -104,7 +105,6 @@ const blockGeo = new THREE.BoxGeometry(1,1,1);
 
 const world = new Map();     // "x,y,z" -> mesh
 const overrides = new Map(); // "x,y,z" -> number|null
-
 const key = (x,y,z)=>`${x},${y},${z}`;
 
 function hasBlockAt(wx, wy, wz){
@@ -113,7 +113,6 @@ function hasBlockAt(wx, wy, wz){
   const bz = Math.floor(wz);
   return world.has(`${bx},${by},${bz}`);
 }
-
 function addBlockMesh(x,y,z,type){
   const k = key(x,y,z);
   if(world.has(k)) return;
@@ -124,7 +123,6 @@ function addBlockMesh(x,y,z,type){
   scene.add(mesh);
   world.set(k, mesh);
 }
-
 function removeBlockMesh(x,y,z){
   const k = key(x,y,z);
   const mesh = world.get(k);
@@ -133,206 +131,6 @@ function removeBlockMesh(x,y,z){
   mesh.geometry.dispose();
   mesh.material.dispose();
   world.delete(k);
-}
-
-/* ---------- CHUNKS + BIOMES ---------- */
-const CHUNK_SIZE = 16;
-const RENDER_DISTANCE = 2; // 25 chunks
-const chunks = new Map();  // "cx,cz" -> { blocks: string[] }
-const chunkKey = (cx,cz)=>`${cx},${cz}`;
-const worldToChunk = (x)=>Math.floor(x / CHUNK_SIZE);
-
-// “bruit” simple déterministe
-const SEED = 1337;
-function hash2(x,z){
-  // renvoie 0..1
-  const n = (x*73856093) ^ (z*19349663) ^ SEED;
-  // >>> 0 => unsigned
-  return ((n >>> 0) % 100000) / 100000;
-}
-function noise2(x,z,scale){
-  // sin/cos + un peu de hash
-  const s = scale;
-  const a = Math.sin((x+SEED)*s) + Math.cos((z-SEED)*s);
-  const b = Math.sin((x+z)*s*0.7) * 0.6;
-  const c = (hash2(Math.floor(x*0.7), Math.floor(z*0.7)) - 0.5) * 0.8;
-  return (a*0.55 + b + c); // ~ -2..2
-}
-function clamp01(t){ return Math.max(0, Math.min(1, t)); }
-function lerp(a,b,t){ return a + (b-a)*t; }
-
-// Biome based on temperature + humidity + elevation
-function biomeAt(x,z){
-  const temp = clamp01(0.5 + noise2(x,z,0.02) * 0.22 + noise2(x,z,0.05) * 0.08);
-  const humid = clamp01(0.5 + noise2(x+1000,z-1000,0.02) * 0.22);
-
-  // relief brut
-  const baseElev = noise2(x-500,z+500,0.015);
-
-  // montagnes si baseElev élevé
-  const mountain = clamp01((baseElev - 0.35) * 1.6);
-
-  if(mountain > 0.55){
-    return { name:"Montagnes", top:2, filler:2, rock:2, heightBase:14, heightAmp:12, tree:0.015 };
-  }
-
-  // neige si froid
-  if(temp < 0.33){
-    return { name:"Neige", top:5, filler:1, rock:2, heightBase:9, heightAmp:6, tree:0.045 };
-  }
-
-  // désert si chaud et sec
-  if(temp > 0.66 && humid < 0.42){
-    return { name:"Désert", top:4, filler:4, rock:2, heightBase:7, heightAmp:4, tree:0.002 };
-  }
-
-  // forêt si humide
-  if(humid > 0.62){
-    return { name:"Forêt", top:0, filler:1, rock:2, heightBase:8, heightAmp:6, tree:0.08 };
-  }
-
-  return { name:"Plaine", top:0, filler:1, rock:2, heightBase:7, heightAmp:5, tree:0.03 };
-}
-
-function heightAt(x,z){
-  const b = biomeAt(x,z);
-  // combine du bruit + une influence du biome
-  const hNoise =
-    noise2(x,z,0.07) * 1.2 +
-    noise2(x,z,0.025) * 2.0 +
-    noise2(x,z,0.012) * 4.0;
-  const h = b.heightBase + hNoise + (hash2(x,z)-0.5)*1.2;
-  return Math.max(2, Math.floor(clamp01((h+20)/40) * b.heightAmp + b.heightBase)); // stable-ish
-}
-
-function proceduralTypeAt(x,y,z){
-  const b = biomeAt(x,z);
-  const h = heightAt(x,z);
-  if(y > h) return null;
-  if(y === h) return b.top;
-  if(y >= h - 2) return b.filler;
-  return b.rock;
-}
-
-function trySpawnTree(x,z){
-  const b = biomeAt(x,z);
-  const chance = b.tree;
-  const r = hash2(x*3+17, z*3-23);
-  if(r > chance) return null;
-  // pas d’arbres dans désert/montagnes extrêmes (déjà faible mais on assure)
-  if(b.name === "Désert") return null;
-  const baseY = heightAt(x,z);
-  return { x, y: baseY, z };
-}
-
-function generateChunk(cx, cz){
-  const ck = chunkKey(cx,cz);
-  if(chunks.has(ck)) return;
-
-  const blocksInChunk = [];
-  const startX = cx * CHUNK_SIZE;
-  const startZ = cz * CHUNK_SIZE;
-
-  for(let lx=0; lx<CHUNK_SIZE; lx++){
-    for(let lz=0; lz<CHUNK_SIZE; lz++){
-      const x = startX + lx;
-      const z = startZ + lz;
-
-      const h = heightAt(x,z);
-
-      for(let y=0; y<=h; y++){
-        const k = key(x,y,z);
-
-        if(overrides.has(k)){
-          const ov = overrides.get(k);
-          if(ov === null) continue;
-          addBlockMesh(x,y,z,ov);
-          blocksInChunk.push(k);
-          continue;
-        }
-
-        const t = proceduralTypeAt(x,y,z);
-        if(t === null) continue;
-        addBlockMesh(x,y,z,t);
-        blocksInChunk.push(k);
-      }
-
-      // arbres
-      const t = trySpawnTree(x,z);
-      if(t){
-        const trunkType = 3;
-        const leafType = (biomeAt(x,z).name === "Neige") ? 5 : 0;
-
-        // tronc
-        for(let yy=t.y+1; yy<=t.y+4; yy++){
-          const k1 = key(t.x,yy,t.z);
-          if(overrides.get(k1) === null) continue;
-          const use = (overrides.has(k1) && typeof overrides.get(k1) === "number") ? overrides.get(k1) : trunkType;
-          addBlockMesh(t.x,yy,t.z,use);
-          blocksInChunk.push(k1);
-        }
-        // “feuilles” (petit cube)
-        for(let ax=-1; ax<=1; ax++){
-          for(let az=-1; az<=1; az++){
-            for(let ay=0; ay<=1; ay++){
-              const xx = t.x+ax, yy=t.y+5+ay, zz=t.z+az;
-              const k2 = key(xx,yy,zz);
-              if(overrides.get(k2) === null) continue;
-              const use = (overrides.has(k2) && typeof overrides.get(k2) === "number") ? overrides.get(k2) : leafType;
-              addBlockMesh(xx,yy,zz,use);
-              blocksInChunk.push(k2);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  chunks.set(ck, { blocks: blocksInChunk });
-}
-
-function unloadChunk(cx, cz){
-  const ck = chunkKey(cx,cz);
-  const ch = chunks.get(ck);
-  if(!ch) return;
-  for(const bk of ch.blocks){
-    const [sx,sy,sz] = bk.split(",").map(Number);
-    removeBlockMesh(sx,sy,sz);
-  }
-  chunks.delete(ck);
-}
-
-let lastChunkCX = null, lastChunkCZ = null;
-let chunkUpdateTimer = 0;
-
-function updateChunks(force=false){
-  const cx = worldToChunk(camera.position.x);
-  const cz = worldToChunk(camera.position.z);
-
-  if(!force && cx === lastChunkCX && cz === lastChunkCZ) return;
-  lastChunkCX = cx; lastChunkCZ = cz;
-
-  const needed = new Set();
-  for(let dx=-RENDER_DISTANCE; dx<=RENDER_DISTANCE; dx++){
-    for(let dz=-RENDER_DISTANCE; dz<=RENDER_DISTANCE; dz++){
-      const ncx = cx + dx;
-      const ncz = cz + dz;
-      const ckk = chunkKey(ncx,ncz);
-      needed.add(ckk);
-      generateChunk(ncx,ncz);
-    }
-  }
-  for(const ckk of chunks.keys()){
-    if(!needed.has(ckk)){
-      const [ccx, ccz] = ckk.split(",").map(Number);
-      unloadChunk(ccx, ccz);
-    }
-  }
-
-  chunkInfoEl.textContent = `${cx},${cz}`;
-  const bx = Math.floor(camera.position.x);
-  const bz = Math.floor(camera.position.z);
-  biomeInfoEl.textContent = biomeAt(bx,bz).name;
 }
 
 /* ---------- HOTBAR ---------- */
@@ -400,25 +198,10 @@ addEventListener("keydown", (e)=>{
     }
   }
 });
-
 addEventListener("keyup", (e)=>{
   keys.delete(e.code);
   if(e.code === "Space") spaceDown = false;
 });
-
-/* ---------- MOBS ---------- */
-const mobs = [];
-function spawnMob(x, y, z){
-  const mobGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-  const mobMat = new THREE.MeshStandardMaterial({ color: 0x7CFC00 });
-  const mob = new THREE.Mesh(mobGeo, mobMat);
-  mob.position.set(x + 0.5, y + 0.4, z + 0.5);
-  mob.userData = { isMob:true, hp:3, vx:0, vz:0, wanderTimer:0 };
-  scene.add(mob);
-  mobs.push(mob);
-  return mob;
-}
-spawnMob(10, 20, 10);
 
 /* ---------- RAYCAST + OUTLINE ---------- */
 const raycaster = new THREE.Raycaster();
@@ -445,6 +228,230 @@ function canPlaceAt(x,y,z){
   return !(closeXZ && closeY);
 }
 
+/* ---------- CHUNKS + BIOMES ---------- */
+const CHUNK_SIZE = 16;
+const RENDER_DISTANCE = 2; // 25 chunks
+const chunks = new Map();  // "cx,cz" -> { blocks: string[] }
+const chunkKey = (cx,cz)=>`${cx},${cz}`;
+const worldToChunk = (x)=>Math.floor(x / CHUNK_SIZE);
+
+const SEED = 1337;
+function hash2(x,z){
+  const n = (x*73856093) ^ (z*19349663) ^ SEED;
+  return ((n >>> 0) % 100000) / 100000; // 0..1
+}
+function noise2(x,z,scale){
+  const s = scale;
+  const a = Math.sin((x+SEED)*s) + Math.cos((z-SEED)*s);
+  const b = Math.sin((x+z)*s*0.7) * 0.6;
+  const c = (hash2(Math.floor(x*0.7), Math.floor(z*0.7)) - 0.5) * 0.8;
+  return (a*0.55 + b + c); // ~ -2..2
+}
+function clamp01(t){ return Math.max(0, Math.min(1, t)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+
+function biomeAt(x,z){
+  const temp  = clamp01(0.5 + noise2(x,z,0.02)*0.22 + noise2(x,z,0.05)*0.08);
+  const humid = clamp01(0.5 + noise2(x+1000,z-1000,0.02)*0.22);
+  const baseElev = noise2(x-500,z+500,0.015);
+  const mountain = clamp01((baseElev - 0.35) * 1.6);
+
+  if(mountain > 0.55){
+    return { name:"Montagnes", top:2, filler:2, rock:2, heightBase:14, heightAmp:12, tree:0.01, cactus:0.0, dunes:0.0 };
+  }
+  if(temp < 0.33){
+    return { name:"Neige", top:5, filler:1, rock:2, heightBase:9, heightAmp:6, tree:0.045, cactus:0.0, dunes:0.0 };
+  }
+  if(temp > 0.66 && humid < 0.42){
+    // ✅ Désert amélioré : dunes + cactus
+    return { name:"Désert", top:4, filler:4, rock:2, heightBase:7, heightAmp:5, tree:0.0, cactus:0.05, dunes:1.0 };
+  }
+  if(humid > 0.62){
+    return { name:"Forêt", top:0, filler:1, rock:2, heightBase:8, heightAmp:6, tree:0.08, cactus:0.0, dunes:0.0 };
+  }
+  return { name:"Plaine", top:0, filler:1, rock:2, heightBase:7, heightAmp:5, tree:0.03, cactus:0.0, dunes:0.0 };
+}
+
+// ✅ Hauteur avec dunes en désert
+function heightAt(x,z){
+  const b = biomeAt(x,z);
+
+  const base =
+    noise2(x,z,0.07) * 1.2 +
+    noise2(x,z,0.025) * 2.0 +
+    noise2(x,z,0.012) * 4.0;
+
+  // dunes : bruit plus “rapide” + ondulations
+  let dune = 0;
+  if(b.dunes > 0){
+    dune =
+      Math.sin((x+SEED) * 0.35) * 0.9 +
+      Math.cos((z-SEED) * 0.35) * 0.9 +
+      noise2(x,z,0.18) * 1.1; // petites bosses
+    dune *= 1.35; // force dunes
+  }
+
+  const jitter = (hash2(x,z)-0.5) * 1.0;
+  const raw = b.heightBase + base + jitter + dune;
+
+  // clamp “propre”
+  const t = clamp01((raw + 20) / 40);
+  const h = Math.floor(lerp(2, b.heightBase + b.heightAmp, t));
+  return Math.max(2, h);
+}
+
+function proceduralTypeAt(x,y,z){
+  const b = biomeAt(x,z);
+  const h = heightAt(x,z);
+  if(y > h) return null;
+  if(y === h) return b.top;
+  if(y >= h - 2) return b.filler;
+  return b.rock;
+}
+
+function trySpawnTreeOrCactus(x,z){
+  const b = biomeAt(x,z);
+  const baseY = heightAt(x,z);
+
+  // cactus dans désert
+  if(b.name === "Désert"){
+    const r = hash2(x*7+91, z*7-37);
+    if(r < b.cactus){
+      const h = 2 + Math.floor(hash2(x*13-5, z*13+9) * 3); // 2..4
+      return { kind:"cactus", x, y: baseY, z, h };
+    }
+    return null;
+  }
+
+  // arbres hors désert
+  const r = hash2(x*3+17, z*3-23);
+  if(r < b.tree){
+    return { kind:"tree", x, y: baseY, z };
+  }
+  return null;
+}
+
+function generateChunk(cx, cz){
+  const ck = chunkKey(cx,cz);
+  if(chunks.has(ck)) return;
+
+  const blocksInChunk = [];
+  const startX = cx * CHUNK_SIZE;
+  const startZ = cz * CHUNK_SIZE;
+
+  for(let lx=0; lx<CHUNK_SIZE; lx++){
+    for(let lz=0; lz<CHUNK_SIZE; lz++){
+      const x = startX + lx;
+      const z = startZ + lz;
+      const h = heightAt(x,z);
+
+      // terrain
+      for(let y=0; y<=h; y++){
+        const k = key(x,y,z);
+
+        if(overrides.has(k)){
+          const ov = overrides.get(k);
+          if(ov === null) continue;
+          addBlockMesh(x,y,z,ov);
+          blocksInChunk.push(k);
+          continue;
+        }
+
+        const t = proceduralTypeAt(x,y,z);
+        if(t === null) continue;
+        addBlockMesh(x,y,z,t);
+        blocksInChunk.push(k);
+      }
+
+      // décor (arbres/cactus)
+      const deco = trySpawnTreeOrCactus(x,z);
+      if(deco){
+        if(deco.kind === "tree"){
+          const trunkType = 3;
+          const leafType = (biomeAt(x,z).name === "Neige") ? 5 : 0;
+
+          for(let yy=deco.y+1; yy<=deco.y+4; yy++){
+            const k1 = key(deco.x,yy,deco.z);
+            if(overrides.get(k1) === null) continue;
+            const use = (overrides.has(k1) && typeof overrides.get(k1) === "number") ? overrides.get(k1) : trunkType;
+            addBlockMesh(deco.x,yy,deco.z,use);
+            blocksInChunk.push(k1);
+          }
+          for(let ax=-1; ax<=1; ax++){
+            for(let az=-1; az<=1; az++){
+              for(let ay=0; ay<=1; ay++){
+                const xx = deco.x+ax, yy=deco.y+5+ay, zz=deco.z+az;
+                const k2 = key(xx,yy,zz);
+                if(overrides.get(k2) === null) continue;
+                const use = (overrides.has(k2) && typeof overrides.get(k2) === "number") ? overrides.get(k2) : leafType;
+                addBlockMesh(xx,yy,zz,use);
+                blocksInChunk.push(k2);
+              }
+            }
+          }
+        }
+
+        if(deco.kind === "cactus"){
+          // cactus = colonne verte sur sable
+          for(let yy=deco.y+1; yy<=deco.y+deco.h; yy++){
+            const k1 = key(deco.x,yy,deco.z);
+            if(overrides.get(k1) === null) continue;
+            const use = (overrides.has(k1) && typeof overrides.get(k1) === "number") ? overrides.get(k1) : 6;
+            addBlockMesh(deco.x,yy,deco.z,use);
+            blocksInChunk.push(k1);
+          }
+        }
+      }
+    }
+  }
+  chunks.set(ck, { blocks: blocksInChunk });
+}
+
+function unloadChunk(cx, cz){
+  const ck = chunkKey(cx,cz);
+  const ch = chunks.get(ck);
+  if(!ch) return;
+  for(const bk of ch.blocks){
+    const [sx,sy,sz] = bk.split(",").map(Number);
+    removeBlockMesh(sx,sy,sz);
+  }
+  chunks.delete(ck);
+}
+
+let lastChunkCX = null, lastChunkCZ = null;
+let chunkUpdateTimer = 0;
+
+function updateChunks(force=false){
+  const cx = worldToChunk(camera.position.x);
+  const cz = worldToChunk(camera.position.z);
+
+  if(!force && cx === lastChunkCX && cz === lastChunkCZ) return;
+  lastChunkCX = cx; lastChunkCZ = cz;
+
+  const needed = new Set();
+  for(let dx=-RENDER_DISTANCE; dx<=RENDER_DISTANCE; dx++){
+    for(let dz=-RENDER_DISTANCE; dz<=RENDER_DISTANCE; dz++){
+      const ncx = cx + dx;
+      const ncz = cz + dz;
+      const ckk = chunkKey(ncx,ncz);
+      needed.add(ckk);
+      generateChunk(ncx,ncz);
+    }
+  }
+  for(const ckk of chunks.keys()){
+    if(!needed.has(ckk)){
+      const [ccx, ccz] = ckk.split(",").map(Number);
+      unloadChunk(ccx, ccz);
+    }
+  }
+
+  chunkInfoEl.textContent = `${cx},${cz}`;
+  const bx = Math.floor(camera.position.x);
+  const bz = Math.floor(camera.position.z);
+  biomeInfoEl.textContent = biomeAt(bx,bz).name;
+}
+
+/* ---------- INTERACTIONS BLOCS ---------- */
 addEventListener("mousedown", (e)=>{
   if(!locked) return;
 
@@ -455,6 +462,7 @@ addEventListener("mousedown", (e)=>{
   const obj = hit.object;
 
   if(e.button===0){
+    // taper mob ?
     if(obj.userData?.isMob){
       obj.userData.hp -= 1;
       const push = new THREE.Vector3();
@@ -473,6 +481,7 @@ addEventListener("mousedown", (e)=>{
       return;
     }
 
+    // casser bloc (persistant)
     const b = obj.userData;
     const k = key(b.x,b.y,b.z);
     overrides.set(k, null);
@@ -558,14 +567,33 @@ function snapToGround(playerY){
   return (by + 1) + PLAYER_HEIGHT;
 }
 
-/* ---------- BOOTSTRAP CHUNKS ---------- */
+/* ---------- MOBS ---------- */
+const mobs = [];
+function spawnMob(x, y, z){
+  const mobGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+  const mobMat = new THREE.MeshStandardMaterial({ color: 0x7CFC00 });
+  const mob = new THREE.Mesh(mobGeo, mobMat);
+  mob.position.set(x + 0.5, y + 0.4, z + 0.5);
+  mob.userData = { isMob:true, hp:3, vx:0, vz:0, wanderTimer:0 };
+  scene.add(mob);
+  mobs.push(mob);
+  return mob;
+}
+
+/* ---------- BOOTSTRAP ---------- */
 updateChunks(true);
-// place le joueur sur le terrain
+// placer joueur au sol
 {
   const sx = Math.floor(camera.position.x);
   const sz = Math.floor(camera.position.z);
   const h = heightAt(sx,sz);
   camera.position.y = h + 1 + PLAYER_HEIGHT;
+}
+// mob près du spawn (au sol)
+{
+  const mx = 10, mz = 10;
+  const mh = heightAt(mx,mz);
+  spawnMob(mx, mh+2, mz);
 }
 
 /* ---------- LOOP ---------- */
@@ -575,6 +603,7 @@ function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
 
+  // chunks (pas chaque frame)
   chunkUpdateTimer += dt;
   if(chunkUpdateTimer > 0.35){
     chunkUpdateTimer = 0;
@@ -583,6 +612,7 @@ function animate(){
 
   updateDayNight(dt);
 
+  // sprint + FOV
   const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
   const targetFov = sprinting ? SPRINT_FOV : BASE_FOV;
   currentFov = currentFov + (targetFov - currentFov) * Math.min(1, FOV_SPEED * dt);
@@ -593,6 +623,7 @@ function animate(){
 
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 
+  // mouvement
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0; forward.normalize();
@@ -619,6 +650,7 @@ function animate(){
     camera.position.z = nextZ;
   }
 
+  // gravité
   velocityY += GRAVITY * dt;
   let newY = camera.position.y + velocityY * dt;
 
@@ -638,6 +670,7 @@ function animate(){
   }
   jumpQueued = false;
 
+  // respawn
   if(camera.position.y < -20){
     const sx = Math.floor(camera.position.x);
     const sz = Math.floor(camera.position.z);
@@ -646,11 +679,12 @@ function animate(){
     velocityY = 0;
   }
 
-  // IA mob simple
+  // mobs (simple)
   const playerPos = camera.position;
   const isNight = todEl.textContent.includes("Nuit");
 
   for(const mob of mobs){
+    // coller au sol
     let grounded = false;
     for(let yy = Math.floor(mob.position.y); yy >= -2; yy--){
       if(hasBlockAt(mob.position.x, yy, mob.position.z)){
@@ -664,7 +698,6 @@ function animate(){
     const dx = playerPos.x - mob.position.x;
     const dz = playerPos.z - mob.position.z;
     const dist = Math.hypot(dx, dz);
-
     const mobSpeed = 1.8 * (isNight ? 1.35 : 1.0);
 
     if(dist < 7 && dist > 0.001){
@@ -692,6 +725,7 @@ function animate(){
     mob.rotation.y += 0.8 * dt;
   }
 
+  // outline
   const hits = getHit();
   if(hits.length){
     outline.visible = true;
