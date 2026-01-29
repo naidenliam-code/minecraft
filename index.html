@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – jour/nuit + mob (jump fix)</title>
+<title>MiniCraft – sprint FOV + jour/nuit + mob</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -53,17 +53,17 @@ small{opacity:.8}
     <p style="margin:0 0 12px;line-height:1.35">
       Clique pour capturer la souris.<br>
       <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter (1 fois par appui)<br>
-      <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs<br>
-      <b>N</b> : pause cycle jour/nuit
+      <b>Shift</b> : courir (FOV dynamique) · <b>N</b> : pause cycle jour/nuit<br>
+      <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
     </p>
     <button id="start">Jouer</button><br>
-    <small>(Shift = courir)</small>
+    <small>(Mob = cube vert)</small>
   </div>
 </div>
 
 <div id="hotbar"></div>
 <div id="hint">
-  Bloc : <span id="blockName">Herbe</span> · Temps: <span id="tod">Jour</span> · Mob: cube vert (3 PV)
+  Bloc : <span id="blockName">Herbe</span> · Temps: <span id="tod">Jour</span>
 </div>
 
 <script type="module">
@@ -80,7 +80,12 @@ const todEl = document.getElementById("tod");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
-const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 300);
+const BASE_FOV = 75;
+const SPRINT_FOV = 88;
+const FOV_SPEED = 10; // vitesse de transition (plus grand = plus rapide)
+let currentFov = BASE_FOV;
+
+const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.1, 300);
 camera.position.set(8, 12, 18);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -183,9 +188,9 @@ renderHotbar();
 let yaw=0, pitch=0, locked=false;
 const keys = new Set();
 
-// ✅ FIX SAUT
-let spaceDown = false;   // vrai tant que la touche est maintenue
-let jumpQueued = false;  // vrai seulement juste après un appui
+// saut “1 fois par appui”
+let spaceDown = false;
+let jumpQueued = false;
 
 startBtn.addEventListener("click", ()=> renderer.domElement.requestPointerLock());
 renderer.domElement.addEventListener("click", ()=> { if(!locked) renderer.domElement.requestPointerLock(); });
@@ -205,11 +210,10 @@ addEventListener("mousemove", (e)=>{
 addEventListener("keydown", (e)=>{
   keys.add(e.code);
 
-  // ✅ Espace : on ignore les répétitions automatiques du clavier
   if(e.code === "Space" && !e.repeat){
     if(!spaceDown){
       spaceDown = true;
-      jumpQueued = true; // un seul saut demandé
+      jumpQueued = true;
     }
   }
 
@@ -228,9 +232,7 @@ addEventListener("keydown", (e)=>{
 
 addEventListener("keyup", (e)=>{
   keys.delete(e.code);
-  if(e.code === "Space"){
-    spaceDown = false;
-  }
+  if(e.code === "Space") spaceDown = false;
 });
 
 /* ---------- MOBS ---------- */
@@ -303,7 +305,7 @@ addEventListener("mousedown", (e)=>{
 
 /* ---------- JOUR / NUIT ---------- */
 let dayCycleEnabled = true;
-let timeOfDay = 0.15;      // 0..1
+let timeOfDay = 0.15;
 const DAY_SECONDS = 60;
 
 function lerp(a,b,t){ return a + (b-a)*t; }
@@ -376,6 +378,15 @@ function animate(){
 
   updateDayNight(dt);
 
+  // FOV dynamique (Sprint)
+  const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
+  const targetFov = sprinting ? SPRINT_FOV : BASE_FOV;
+  currentFov = currentFov + (targetFov - currentFov) * Math.min(1, FOV_SPEED * dt);
+  if (Math.abs(camera.fov - currentFov) > 0.001) {
+    camera.fov = currentFov;
+    camera.updateProjectionMatrix();
+  }
+
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 
   const forward = new THREE.Vector3();
@@ -383,7 +394,8 @@ function animate(){
   forward.y = 0; forward.normalize();
   const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
 
-  const speed = keys.has("ShiftLeft") ? 8 : 5;
+  // vitesse sprint
+  const speed = sprinting ? 8 : 5;
 
   let move = new THREE.Vector3();
   if(keys.has("KeyW")) move.add(forward);
@@ -392,7 +404,7 @@ function animate(){
   if(keys.has("KeyD")) move.add(right);
   if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
 
-  // collision horizontale (2 hauteurs)
+  // collision horizontale
   const nextX = camera.position.x + move.x;
   const nextZ = camera.position.z + move.z;
 
@@ -409,27 +421,24 @@ function animate(){
   velocityY += GRAVITY * dt;
   let newY = camera.position.y + velocityY * dt;
 
-  // sol
   if(velocityY <= 0 && isSolidUnder(newY)){
     newY = snapToGround(newY);
     velocityY = 0;
   }
 
-  // plafond
   if(velocityY > 0 && hasBlockAt(camera.position.x, newY - 0.1, camera.position.z)){
     velocityY = 0;
   }
 
   camera.position.y = newY;
 
-  // ✅ saut une seule fois par pression
+  // saut (1 fois par appui)
   const onGround = isSolidUnder(camera.position.y);
   if(onGround && jumpQueued){
     velocityY = JUMP_FORCE;
   }
   jumpQueued = false;
 
-  // respawn
   if(camera.position.y < -10){
     camera.position.set(8, 12, 18);
     velocityY = 0;
