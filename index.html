@@ -1,49 +1,210 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MiniCraft (prototype)</title>
-  <style>
-    html, body { margin:0; height:100%; overflow:hidden; background:#000; }
-    #ui {
-      position: fixed; inset: 0; display: grid; place-items: center;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      color: white; background: rgba(0,0,0,.55);
-      user-select: none;
-    }
-    #crosshair {
-      position: fixed; left: 50%; top: 50%;
-      transform: translate(-50%, -50%);
-      width: 12px; height: 12px;
-      pointer-events: none;
-    }
-    #crosshair::before, #crosshair::after {
-      content:""; position:absolute; left:50%; top:50%;
-      transform: translate(-50%, -50%); background:white;
-    }
-    #crosshair::before { width:12px; height:2px; }
-    #crosshair::after  { width:2px;  height:12px; }
-    #hint { position: fixed; left: 12px; bottom: 12px; color: #fff; font: 14px system-ui; }
-  </style>
-</head>
-<body>
-  <div id="crosshair"></div>
-  <div id="ui">
-    <div style="text-align:center; max-width: 520px; padding: 18px;">
-      <h1 style="margin:0 0 10px;">MiniCraft (prototype)</h1>
-      <p style="margin:0 0 12px; line-height:1.35;">
-        Clique pour capturer la souris.<br>
-        WASD = bouger · Souris = regarder · Espace = monter (mode “fly”)<br>
-        Clic gauche = casser · Clic droit = poser
-      </p>
-      <button id="start" style="padding:10px 14px; border-radius:12px; border:0; cursor:pointer;">
-        Jouer
-      </button>
-    </div>
-  </div>
-  <div id="hint">Bloc sélectionné: <span id="blockName">Herbe</span> (touche 1-5)</div>
+<meta charset="utf-8">
+<title>MiniCraft – prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
+#ui{
+  position:fixed;inset:0;display:grid;place-items:center;
+  background:rgba(0,0,0,.6);color:#fff;z-index:5
+}
+#crosshair{
+  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:12px;height:12px;pointer-events:none
+}
+#crosshair::before,#crosshair::after{
+  content:"";position:absolute;background:white
+}
+#crosshair::before{width:12px;height:2px;top:5px}
+#crosshair::after{width:2px;height:12px;left:5px}
 
-  <script type="module" src="main.js"></script>
+#hotbar{
+  position:fixed;left:50%;bottom:20px;transform:translateX(-50%);
+  display:flex;gap:10px;padding:10px;
+  background:rgba(0,0,0,.4);border-radius:16px
+}
+.slot{
+  width:44px;height:44px;border-radius:12px;
+  border:2px solid rgba(255,255,255,.3);
+  display:grid;place-items:center;color:white;
+}
+.slot.selected{border-color:white;transform:translateY(-2px)}
+.chip{width:26px;height:26px;border-radius:8px}
+
+#hint{
+  position:fixed;left:12px;bottom:12px;color:white;font-size:14px
+}
+button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
+</style>
+</head>
+
+<body>
+<div id="crosshair"></div>
+
+<div id="ui">
+  <div style="text-align:center;max-width:480px">
+    <h1>MiniCraft</h1>
+    <p>
+      WASD : bouger<br>
+      Souris : regarder<br>
+      Clic gauche : casser<br>
+      Clic droit : poser<br>
+      Touches 1–5 : blocs
+    </p>
+    <button id="start">Jouer</button>
+  </div>
+</div>
+
+<div id="hotbar"></div>
+<div id="hint">Bloc : <span id="blockName">Herbe</span></div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
+
+/* ---------- BASE ---------- */
+const ui = document.getElementById("ui");
+const startBtn = document.getElementById("start");
+const hotbar = document.getElementById("hotbar");
+const blockNameEl = document.getElementById("blockName");
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(8,8,18);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+/* ---------- LUMIÈRE ---------- */
+scene.add(new THREE.DirectionalLight(0xffffff,1).position.set(10,30,10));
+scene.add(new THREE.AmbientLight(0xffffff,.4));
+
+/* ---------- BLOCS ---------- */
+const BLOCKS = [
+  {name:"Herbe",color:0x4caf50},
+  {name:"Terre",color:0x7a5230},
+  {name:"Pierre",color:0x9e9e9e},
+  {name:"Bois",color:0x8d6e63},
+  {name:"Sable",color:0xd8c38a}
+];
+let selectedBlock = 0;
+
+const geo = new THREE.BoxGeometry(1,1,1);
+const world = new Map();
+const key=(x,y,z)=>`${x},${y},${z}`;
+
+function addBlock(x,y,z,t){
+  const k=key(x,y,z); if(world.has(k))return;
+  const m=new THREE.MeshStandardMaterial({color:BLOCKS[t].color});
+  const b=new THREE.Mesh(geo,m);
+  b.position.set(x+.5,y+.5,z+.5);
+  b.userData={x,y,z};
+  scene.add(b); world.set(k,b);
+}
+function removeBlock(x,y,z){
+  const k=key(x,y,z); const b=world.get(k);
+  if(!b)return; scene.remove(b); world.delete(k);
+}
+
+/* ---------- MONDE ---------- */
+for(let x=0;x<16;x++)for(let z=0;z<16;z++){
+  const h=2+Math.floor(Math.sin(x*.5)+Math.cos(z*.5));
+  for(let y=0;y<h;y++){
+    addBlock(x,y,z,y==h-1?0:y>=h-3?1:2);
+  }
+}
+
+/* ---------- HOTBAR ---------- */
+function renderHotbar(){
+  hotbar.innerHTML="";
+  BLOCKS.forEach((b,i)=>{
+    const s=document.createElement("div");
+    s.className="slot"+(i===selectedBlock?" selected":"");
+    const c=document.createElement("div");
+    c.className="chip";
+    c.style.background="#"+b.color.toString(16).padStart(6,"0");
+    s.appendChild(c);
+    hotbar.appendChild(s);
+  });
+  blockNameEl.textContent=BLOCKS[selectedBlock].name;
+}
+renderHotbar();
+
+/* ---------- CONTRÔLES ---------- */
+let yaw=0,pitch=0,locked=false;
+const keys=new Set();
+
+startBtn.onclick=()=>renderer.domElement.requestPointerLock();
+document.addEventListener("pointerlockchange",()=>{
+  locked=document.pointerLockElement===renderer.domElement;
+  ui.style.display=locked?"none":"grid";
+});
+
+addEventListener("mousemove",e=>{
+  if(!locked)return;
+  yaw-=e.movementX*0.002;
+  pitch-=e.movementY*0.002;
+  pitch=Math.max(-1.55,Math.min(1.55,pitch));
+});
+addEventListener("keydown",e=>{
+  keys.add(e.code);
+  if(e.code.startsWith("Digit")){
+    const n=+e.code[5]-1;
+    if(BLOCKS[n]){selectedBlock=n;renderHotbar();}
+  }
+});
+addEventListener("keyup",e=>keys.delete(e.code));
+
+/* ---------- RAYCAST ---------- */
+const raycaster=new THREE.Raycaster();
+addEventListener("contextmenu",e=>e.preventDefault());
+addEventListener("mousedown",e=>{
+  if(!locked)return;
+  raycaster.setFromCamera({x:0,y:0},camera);
+  const hits=raycaster.intersectObjects([...world.values()]);
+  if(!hits.length)return;
+  const b=hits[0].object.userData;
+  if(e.button===0)removeBlock(b.x,b.y,b.z);
+  if(e.button===2){
+    const n=hits[0].face.normal;
+    addBlock(b.x+n.x,b.y+n.y,b.z+n.z,selectedBlock);
+  }
+});
+
+/* ---------- LOOP ---------- */
+const clock=new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=clock.getDelta();
+  camera.rotation.set(pitch,yaw,0,"YXZ");
+
+  const dir=new THREE.Vector3();
+  const fwd=new THREE.Vector3();
+  camera.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
+  const right=new THREE.Vector3().crossVectors(fwd,new THREE.Vector3(0,1,0));
+
+  if(keys.has("KeyW"))dir.add(fwd);
+  if(keys.has("KeyS"))dir.sub(fwd);
+  if(keys.has("KeyA"))dir.sub(right);
+  if(keys.has("KeyD"))dir.add(right);
+
+  if(dir.length())dir.normalize().multiplyScalar(6*dt);
+  camera.position.add(dir);
+
+  renderer.render(scene,camera);
+}
+animate();
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
 </body>
 </html>
