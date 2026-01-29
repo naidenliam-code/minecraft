@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MiniCraft (prototype)</title>
+  <style>
+    html, body { margin:0; height:100%; overflow:hidden; background:#000; }
+    #ui {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: white; background: rgba(0,0,0,.55);
+      user-select: none;
+    }
+    #crosshair {
+      position: fixed; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px; height: 12px;
+      pointer-events: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content:""; position:absolute; left:50%; top:50%;
+      transform: translate(-50%, -50%); background:white;
+    }
+    #crosshair::before { width:12px; height:2px; }
+    #crosshair::after  { width:2px;  height:12px; }
+    #hint { position: fixed; left: 12px; bottom: 12px; color: #fff; font: 14px system-ui; }
+  </style>
+</head>
+<body>
+  <div id="crosshair"></div>
+  <div id="ui">
+    <div style="text-align:center; max-width: 520px; padding: 18px;">
+      <h1 style="margin:0 0 10px;">MiniCraft (prototype)</h1>
+      <p style="margin:0 0 12px; line-height:1.35;">
+        Clique pour capturer la souris.<br>
+        WASD = bouger · Souris = regarder · Espace = monter (mode “fly”)<br>
+        Clic gauche = casser · Clic droit = poser
+      </p>
+      <button id="start" style="padding:10px 14px; border-radius:12px; border:0; cursor:pointer;">
+        Jouer
+      </button>
+    </div>
+  </div>
+  <div id="hint">Bloc sélectionné: <span id="blockName">Herbe</span> (touche 1-5)</div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
