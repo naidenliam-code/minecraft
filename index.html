@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – jour/nuit + mob (gravité fix)</title>
+<title>MiniCraft – jour/nuit + mob (jump fix)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -52,7 +52,7 @@ small{opacity:.8}
     <h1 style="margin:0 0 10px">MiniCraft</h1>
     <p style="margin:0 0 12px;line-height:1.35">
       Clique pour capturer la souris.<br>
-      <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter<br>
+      <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter (1 fois par appui)<br>
       <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs<br>
       <b>N</b> : pause cycle jour/nuit
     </p>
@@ -182,7 +182,10 @@ renderHotbar();
 /* ---------- CONTRÔLES FPS ---------- */
 let yaw=0, pitch=0, locked=false;
 const keys = new Set();
-let jumpRequested = false;
+
+// ✅ FIX SAUT
+let spaceDown = false;   // vrai tant que la touche est maintenue
+let jumpQueued = false;  // vrai seulement juste après un appui
 
 startBtn.addEventListener("click", ()=> renderer.domElement.requestPointerLock());
 renderer.domElement.addEventListener("click", ()=> { if(!locked) renderer.domElement.requestPointerLock(); });
@@ -202,9 +205,17 @@ addEventListener("mousemove", (e)=>{
 addEventListener("keydown", (e)=>{
   keys.add(e.code);
 
-  if(e.code === "Space") jumpRequested = true;
+  // ✅ Espace : on ignore les répétitions automatiques du clavier
+  if(e.code === "Space" && !e.repeat){
+    if(!spaceDown){
+      spaceDown = true;
+      jumpQueued = true; // un seul saut demandé
+    }
+  }
 
-  if(e.code === "KeyN") dayCycleEnabled = !dayCycleEnabled;
+  if(e.code === "KeyN" && !e.repeat){
+    dayCycleEnabled = !dayCycleEnabled;
+  }
 
   if(e.code.startsWith("Digit")){
     const n = Number(e.code.replace("Digit","")) - 1;
@@ -214,7 +225,13 @@ addEventListener("keydown", (e)=>{
     }
   }
 });
-addEventListener("keyup", (e)=> keys.delete(e.code));
+
+addEventListener("keyup", (e)=>{
+  keys.delete(e.code);
+  if(e.code === "Space"){
+    spaceDown = false;
+  }
+});
 
 /* ---------- MOBS ---------- */
 const mobs = [];
@@ -286,7 +303,7 @@ addEventListener("mousedown", (e)=>{
 
 /* ---------- JOUR / NUIT ---------- */
 let dayCycleEnabled = true;
-let timeOfDay = 0.15;      // 0..1 (0=minuit, 0.5=midi)
+let timeOfDay = 0.15;      // 0..1
 const DAY_SECONDS = 60;
 
 function lerp(a,b,t){ return a + (b-a)*t; }
@@ -329,18 +346,16 @@ function updateDayNight(dt){
   todEl.textContent = dayCycleEnabled ? label : (label + " (pause)");
 }
 
-/* ---------- PHYSIQUE JOUEUR (FIX) ---------- */
+/* ---------- PHYSIQUE JOUEUR ---------- */
 let velocityY = 0;
 const GRAVITY = -22;
 const JUMP_FORCE = 8.5;
 
-// caméra = “tête”, donc pieds = y - PLAYER_HEIGHT
 const PLAYER_HEIGHT = 1.8;
 const EPS = 0.001;
 
 function feetY(y){ return y - PLAYER_HEIGHT; }
 function groundBlockYAt(playerY){
-  // bloc juste sous les pieds
   return Math.floor(feetY(playerY) - EPS);
 }
 function isSolidUnder(playerY){
@@ -349,7 +364,6 @@ function isSolidUnder(playerY){
 }
 function snapToGround(playerY){
   const by = groundBlockYAt(playerY);
-  // le sol est à by+1, donc tête = (by+1) + PLAYER_HEIGHT
   return (by + 1) + PLAYER_HEIGHT;
 }
 
@@ -364,13 +378,11 @@ function animate(){
 
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 
-  // direction avant/droite
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0; forward.normalize();
   const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
 
-  // vitesse
   const speed = keys.has("ShiftLeft") ? 8 : 5;
 
   let move = new THREE.Vector3();
@@ -380,7 +392,7 @@ function animate(){
   if(keys.has("KeyD")) move.add(right);
   if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
 
-  // collisions horizontales (2 hauteurs)
+  // collision horizontale (2 hauteurs)
   const nextX = camera.position.x + move.x;
   const nextZ = camera.position.z + move.z;
 
@@ -393,7 +405,7 @@ function animate(){
     camera.position.z = nextZ;
   }
 
-  // gravité (fix stable)
+  // gravité
   velocityY += GRAVITY * dt;
   let newY = camera.position.y + velocityY * dt;
 
@@ -403,21 +415,21 @@ function animate(){
     velocityY = 0;
   }
 
-  // plafond (si on monte dans un bloc)
+  // plafond
   if(velocityY > 0 && hasBlockAt(camera.position.x, newY - 0.1, camera.position.z)){
     velocityY = 0;
   }
 
   camera.position.y = newY;
 
-  // saut (sur appui)
+  // ✅ saut une seule fois par pression
   const onGround = isSolidUnder(camera.position.y);
-  if(onGround && jumpRequested){
+  if(onGround && jumpQueued){
     velocityY = JUMP_FORCE;
   }
-  jumpRequested = false;
+  jumpQueued = false;
 
-  // respawn si chute
+  // respawn
   if(camera.position.y < -10){
     camera.position.set(8, 12, 18);
     velocityY = 0;
