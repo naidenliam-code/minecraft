@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – collisions + mob</title>
+<title>MiniCraft – jour/nuit + mob</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -31,9 +31,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
 }
 .slot.selected{border-color:white;transform:translateY(-2px)}
 .chip{width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.25)}
-.badge{
-  position:absolute;right:6px;bottom:4px;font-size:11px;opacity:.85
-}
+.badge{position:absolute;right:6px;bottom:4px;font-size:11px;opacity:.85}
 
 #hint{
   position:fixed;left:12px;bottom:12px;color:white;font-size:14px;z-index:4;
@@ -55,7 +53,8 @@ small{opacity:.8}
     <p style="margin:0 0 12px;line-height:1.35">
       Clique pour capturer la souris.<br>
       <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter<br>
-      <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
+      <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs<br>
+      <b>N</b> : pause cycle jour/nuit
     </p>
     <button id="start">Jouer</button><br>
     <small>(Shift = courir)</small>
@@ -63,7 +62,9 @@ small{opacity:.8}
 </div>
 
 <div id="hotbar"></div>
-<div id="hint">Bloc : <span id="blockName">Herbe</span> · Mob: cube vert (3 PV)</div>
+<div id="hint">
+  Bloc : <span id="blockName">Herbe</span> · Mob: cube vert (3 PV) · Temps: <span id="tod">Jour</span>
+</div>
 
 <script type="module">
 import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
@@ -73,10 +74,11 @@ const ui = document.getElementById("ui");
 const startBtn = document.getElementById("start");
 const hotbar = document.getElementById("hotbar");
 const blockNameEl = document.getElementById("blockName");
+const todEl = document.getElementById("tod");
 
 /* ---------- SCÈNE ---------- */
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
+scene.background = new THREE.Color(0x87ceeb); // jour par défaut
 
 const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 300);
 camera.position.set(8, 12, 18);
@@ -90,7 +92,17 @@ document.body.appendChild(renderer.domElement);
 const sun = new THREE.DirectionalLight(0xffffff, 1.0);
 sun.position.set(12, 30, 10);
 scene.add(sun);
-scene.add(new THREE.AmbientLight(0xffffff, 0.38));
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.38);
+scene.add(ambient);
+
+// “boule soleil” (visuel)
+const sunBall = new THREE.Mesh(
+  new THREE.SphereGeometry(1.1, 18, 18),
+  new THREE.MeshBasicMaterial({ color: 0xfff1a8 })
+);
+sunBall.position.set(25, 35, -25);
+scene.add(sunBall);
 
 /* ---------- BLOCS ---------- */
 const BLOCKS = [
@@ -204,21 +216,14 @@ const mobs = [];
 
 function spawnMob(x, y, z){
   const mobGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-  const mobMat = new THREE.MeshStandardMaterial({ color: 0x7CFC00 }); // vert “slime”
+  const mobMat = new THREE.MeshStandardMaterial({ color: 0x7CFC00 }); // slime
   const mob = new THREE.Mesh(mobGeo, mobMat);
   mob.position.set(x + 0.5, y + 0.4, z + 0.5);
-  mob.userData = {
-    isMob: true,
-    hp: 3,
-    vx: 0,
-    vz: 0,
-    wanderTimer: 0
-  };
+  mob.userData = { isMob:true, hp:3, vx:0, vz:0, wanderTimer:0 };
   scene.add(mob);
   mobs.push(mob);
   return mob;
 }
-// Un mob au départ (on le “collera” au sol dans l’IA)
 spawnMob(10, 10, 10);
 
 /* ---------- RAYCAST + SURBRILLANCE ---------- */
@@ -231,7 +236,7 @@ scene.add(outline);
 
 function getHit(){
   raycaster.setFromCamera({x:0,y:0}, camera);
-  const targets = [...world.values(), ...mobs]; // blocs + mobs
+  const targets = [...world.values(), ...mobs];
   return raycaster.intersectObjects(targets, false);
 }
 
@@ -245,11 +250,9 @@ addEventListener("mousedown", (e)=>{
   const obj = hit.object;
 
   if(e.button===0){
-    // taper un mob ?
     if(obj.userData?.isMob){
       obj.userData.hp -= 1;
 
-      // petit “recul” simple (dans la direction du regard)
       const push = new THREE.Vector3();
       camera.getWorldDirection(push);
       push.y = 0;
@@ -266,14 +269,11 @@ addEventListener("mousedown", (e)=>{
       return;
     }
 
-    // sinon casser un bloc
     const b = obj.userData;
     removeBlock(b.x,b.y,b.z);
 
   } else if(e.button===2){
-    // poser uniquement si on vise un bloc (pas un mob)
     if(obj.userData?.isMob) return;
-
     const b = obj.userData;
     const n = hit.face?.normal;
     if(!n) return;
@@ -281,14 +281,76 @@ addEventListener("mousedown", (e)=>{
   }
 });
 
-/* ---------- PHYSIQUE JOUEUR (GRAVITÉ + COLLISIONS) ---------- */
+/* ---------- PHYSIQUE JOUEUR ---------- */
 let velocityY = 0;
 const GRAVITY = -22;
 const JUMP_FORCE = 8.5;
-const PLAYER_HEIGHT = 1.8; // caméra = tête (approx)
+const PLAYER_HEIGHT = 1.8;
 
 function isGroundBelow(yCandidate){
   return hasBlockAt(camera.position.x, yCandidate - PLAYER_HEIGHT, camera.position.z);
+}
+
+/* ---------- JOUR / NUIT ---------- */
+let dayCycleEnabled = true;
+let timeOfDay = 0.15;               // 0..1 (0 = minuit, 0.5 = midi)
+const DAY_SECONDS = 60;             // durée d’un jour complet en secondes (change si tu veux)
+
+addEventListener("keydown", (e)=>{
+  if(e.code === "KeyN"){
+    dayCycleEnabled = !dayCycleEnabled;
+  }
+});
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function clamp01(t){ return Math.max(0, Math.min(1, t)); }
+
+// couleurs ciel
+const SKY_DAY = new THREE.Color(0x87ceeb);
+const SKY_SUNSET = new THREE.Color(0xff8a4c);
+const SKY_NIGHT = new THREE.Color(0x050814);
+
+// met à jour lumière + ciel
+function updateDayNight(dt){
+  if(dayCycleEnabled){
+    timeOfDay = (timeOfDay + dt / DAY_SECONDS) % 1;
+  }
+
+  // soleil: angle (0=minuit, pi=midi)
+  const angle = timeOfDay * Math.PI * 2;
+
+  // hauteur soleil (sinus)
+  const sunY = Math.sin(angle);          // -1..1
+  const sunHeight = clamp01((sunY + 0.1) / 1.1); // 0..1 (un peu de marge)
+
+  // position du soleil (tourne autour)
+  const radius = 45;
+  sun.position.set(
+    Math.cos(angle) * radius,
+    lerp(-10, 35, sunHeight),
+    Math.sin(angle) * radius
+  );
+  sunBall.position.copy(sun.position);
+
+  // intensités
+  sun.intensity = lerp(0.05, 1.0, sunHeight);
+  ambient.intensity = lerp(0.08, 0.42, sunHeight);
+
+  // ciel: nuit -> sunset -> jour
+  // on fait un “sunsetFactor” quand le soleil est bas
+  const sunsetFactor = clamp01(1 - Math.abs(sunY) * 3); // max quand proche de l’horizon
+  const nightFactor = clamp01(1 - sunHeight);
+
+  // mélange : d’abord jour/sunset, puis vers nuit
+  const sky1 = SKY_DAY.clone().lerp(SKY_SUNSET, sunsetFactor);
+  const skyFinal = sky1.lerp(SKY_NIGHT, nightFactor * 0.9);
+  scene.background = skyFinal;
+
+  // texte UI
+  let label = "Jour";
+  if(sunHeight < 0.15) label = "Nuit";
+  else if(sunsetFactor > 0.35) label = "Coucher/Lever";
+  todEl.textContent = dayCycleEnabled ? label : (label + " (pause)");
 }
 
 /* ---------- LOOP ---------- */
@@ -297,6 +359,9 @@ const clock = new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+
+  // jour/nuit
+  updateDayNight(dt);
 
   // rotation caméra
   camera.rotation.set(pitch, yaw, 0, "YXZ");
@@ -318,7 +383,7 @@ function animate(){
   if(keys.has("KeyD")) move.add(right);
   if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
 
-  // collision horizontale joueur (simple : 2 hauteurs)
+  // collision horizontale joueur (2 hauteurs)
   const nextX = camera.position.x + move.x;
   const nextZ = camera.position.z + move.z;
 
@@ -335,7 +400,6 @@ function animate(){
   velocityY += GRAVITY * dt;
   let nextY = camera.position.y + velocityY * dt;
 
-  // collision sol
   if(velocityY <= 0 && isGroundBelow(nextY)){
     velocityY = 0;
     camera.position.y = Math.floor(camera.position.y) + PLAYER_HEIGHT;
@@ -348,7 +412,7 @@ function animate(){
     velocityY = 0;
   }
 
-  // saut (au sol)
+  // saut
   const onGround = isGroundBelow(camera.position.y);
   if(onGround && keys.has("Space")){
     velocityY = JUMP_FORCE;
@@ -364,7 +428,7 @@ function animate(){
   const playerPos = camera.position;
 
   for(const mob of mobs){
-    // “coller” le mob au sol (simple)
+    // coller au sol
     let grounded = false;
     for(let yy = Math.floor(mob.position.y); yy >= -2; yy--){
       if(hasBlockAt(mob.position.x, yy, mob.position.z)){
@@ -382,12 +446,13 @@ function animate(){
 
     const mobSpeed = 1.8;
 
+    // (option fun) la nuit il devient + “agressif”
+    const nightBoost = (todEl.textContent.includes("Nuit") ? 1.35 : 1.0);
+
     if(dist < 7 && dist > 0.001){
-      // il te suit
-      mob.userData.vx = (dx / dist) * mobSpeed;
-      mob.userData.vz = (dz / dist) * mobSpeed;
+      mob.userData.vx = (dx / dist) * mobSpeed * nightBoost;
+      mob.userData.vz = (dz / dist) * mobSpeed * nightBoost;
     } else {
-      // il se promène
       mob.userData.wanderTimer -= dt;
       if(mob.userData.wanderTimer <= 0){
         mob.userData.wanderTimer = 1 + Math.random() * 2;
@@ -397,7 +462,7 @@ function animate(){
       }
     }
 
-    // collision mob vs blocs (simple)
+    // collision mob vs blocs
     const nx = mob.position.x + mob.userData.vx * dt;
     const nz = mob.position.z + mob.userData.vz * dt;
 
@@ -407,11 +472,10 @@ function animate(){
     if(!hasBlockAt(mob.position.x, mob.position.y - 0.3, nz)) mob.position.z = nz;
     else mob.userData.vz *= -0.3;
 
-    // petite animation
     mob.rotation.y += 0.8 * dt;
   }
 
-  // surlignage du bloc (ou mob) visé
+  // surlignage (bloc ou mob) visé
   const hits = getHit();
   if(hits.length){
     outline.visible = true;
