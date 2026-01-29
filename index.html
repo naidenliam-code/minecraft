@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – prototype</title>
+<title>MiniCraft – collisions</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -12,31 +12,34 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
 }
 #crosshair{
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:12px;height:12px;pointer-events:none
+  width:12px;height:12px;pointer-events:none;z-index:4
 }
-#crosshair::before,#crosshair::after{
-  content:"";position:absolute;background:white
-}
+#crosshair::before,#crosshair::after{content:"";position:absolute;background:white}
 #crosshair::before{width:12px;height:2px;top:5px}
 #crosshair::after{width:2px;height:12px;left:5px}
 
 #hotbar{
   position:fixed;left:50%;bottom:20px;transform:translateX(-50%);
   display:flex;gap:10px;padding:10px;
-  background:rgba(0,0,0,.4);border-radius:16px
+  background:rgba(0,0,0,.4);border-radius:16px;z-index:4
 }
 .slot{
   width:44px;height:44px;border-radius:12px;
   border:2px solid rgba(255,255,255,.3);
-  display:grid;place-items:center;color:white;
+  display:grid;place-items:center;color:white;position:relative;
+  user-select:none;
 }
 .slot.selected{border-color:white;transform:translateY(-2px)}
-.chip{width:26px;height:26px;border-radius:8px}
+.chip{width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.25)}
+.badge{
+  position:absolute;right:6px;bottom:4px;font-size:11px;opacity:.85
+}
 
 #hint{
-  position:fixed;left:12px;bottom:12px;color:white;font-size:14px
+  position:fixed;left:12px;bottom:12px;color:white;font-size:14px;z-index:4
 }
 button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
+small{opacity:.8}
 </style>
 </head>
 
@@ -44,16 +47,15 @@ button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
 <div id="crosshair"></div>
 
 <div id="ui">
-  <div style="text-align:center;max-width:480px">
-    <h1>MiniCraft</h1>
-    <p>
-      WASD : bouger<br>
-      Souris : regarder<br>
-      Clic gauche : casser<br>
-      Clic droit : poser<br>
-      Touches 1–5 : blocs
+  <div style="text-align:center;max-width:520px;padding:18px">
+    <h1 style="margin:0 0 10px">MiniCraft</h1>
+    <p style="margin:0 0 12px;line-height:1.35">
+      Clique pour capturer la souris.<br>
+      <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter<br>
+      <b>Clic gauche</b> : casser · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
     </p>
-    <button id="start">Jouer</button>
+    <button id="start">Jouer</button><br>
+    <small>(Astuce: Shift = plus rapide)</small>
   </div>
 </div>
 
@@ -63,147 +65,286 @@ button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
 <script type="module">
 import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
 
-/* ---------- BASE ---------- */
+/* ---------- DOM ---------- */
 const ui = document.getElementById("ui");
 const startBtn = document.getElementById("start");
 const hotbar = document.getElementById("hotbar");
 const blockNameEl = document.getElementById("blockName");
 
+/* ---------- SCÈNE ---------- */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
-const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 200);
-camera.position.set(8,8,18);
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 300);
+camera.position.set(8, 12, 18);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth,innerHeight);
-renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
-/* ---------- LUMIÈRE ---------- */
-scene.add(new THREE.DirectionalLight(0xffffff,1).position.set(10,30,10));
-scene.add(new THREE.AmbientLight(0xffffff,.4));
+/* ---------- LUMIÈRES ---------- */
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(12, 30, 10);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0xffffff, 0.38));
 
 /* ---------- BLOCS ---------- */
 const BLOCKS = [
-  {name:"Herbe",color:0x4caf50},
-  {name:"Terre",color:0x7a5230},
-  {name:"Pierre",color:0x9e9e9e},
-  {name:"Bois",color:0x8d6e63},
-  {name:"Sable",color:0xd8c38a}
+  {name:"Herbe", color:0x4caf50},
+  {name:"Terre", color:0x7a5230},
+  {name:"Pierre", color:0x9e9e9e},
+  {name:"Bois",  color:0x8d6e63},
+  {name:"Sable", color:0xd8c38a}
 ];
 let selectedBlock = 0;
 
-const geo = new THREE.BoxGeometry(1,1,1);
+const blockGeo = new THREE.BoxGeometry(1,1,1);
 const world = new Map();
-const key=(x,y,z)=>`${x},${y},${z}`;
+const key = (x,y,z)=>`${x},${y},${z}`;
 
-function addBlock(x,y,z,t){
-  const k=key(x,y,z); if(world.has(k))return;
-  const m=new THREE.MeshStandardMaterial({color:BLOCKS[t].color});
-  const b=new THREE.Mesh(geo,m);
-  b.position.set(x+.5,y+.5,z+.5);
-  b.userData={x,y,z};
-  scene.add(b); world.set(k,b);
+function addBlock(x,y,z,type){
+  const k = key(x,y,z);
+  if(world.has(k)) return;
+
+  const mat = new THREE.MeshStandardMaterial({color: BLOCKS[type].color});
+  const mesh = new THREE.Mesh(blockGeo, mat);
+  mesh.position.set(x+0.5, y+0.5, z+0.5);
+  mesh.userData = {x,y,z,type};
+  scene.add(mesh);
+  world.set(k, mesh);
 }
 function removeBlock(x,y,z){
-  const k=key(x,y,z); const b=world.get(k);
-  if(!b)return; scene.remove(b); world.delete(k);
+  const k = key(x,y,z);
+  const mesh = world.get(k);
+  if(!mesh) return;
+  scene.remove(mesh);
+  mesh.geometry.dispose();
+  mesh.material.dispose();
+  world.delete(k);
+}
+function hasBlockAt(wx, wy, wz){
+  const bx = Math.floor(wx);
+  const by = Math.floor(wy);
+  const bz = Math.floor(wz);
+  return world.has(`${bx},${by},${bz}`);
 }
 
-/* ---------- MONDE ---------- */
-for(let x=0;x<16;x++)for(let z=0;z<16;z++){
-  const h=2+Math.floor(Math.sin(x*.5)+Math.cos(z*.5));
-  for(let y=0;y<h;y++){
-    addBlock(x,y,z,y==h-1?0:y>=h-3?1:2);
+/* ---------- GÉNÉRATION MINI MONDE ---------- */
+const W=16, D=16;
+for(let x=0;x<W;x++){
+  for(let z=0;z<D;z++){
+    const h = 3 + Math.floor(1.2*Math.sin(x*0.55) + 1.2*Math.cos(z*0.55));
+    for(let y=0;y<h;y++){
+      const type = (y===h-1) ? 0 : (y>=h-3 ? 1 : 2);
+      addBlock(x,y,z,type);
+    }
   }
 }
+// arbre
+for(let y=5;y<8;y++) addBlock(5,y,5,3);
+addBlock(4,8,5,0); addBlock(5,8,4,0); addBlock(5,8,5,0); addBlock(6,8,5,0); addBlock(5,8,6,0);
 
 /* ---------- HOTBAR ---------- */
 function renderHotbar(){
-  hotbar.innerHTML="";
+  hotbar.innerHTML = "";
   BLOCKS.forEach((b,i)=>{
-    const s=document.createElement("div");
-    s.className="slot"+(i===selectedBlock?" selected":"");
-    const c=document.createElement("div");
-    c.className="chip";
-    c.style.background="#"+b.color.toString(16).padStart(6,"0");
-    s.appendChild(c);
-    hotbar.appendChild(s);
+    const slot = document.createElement("div");
+    slot.className = "slot" + (i===selectedBlock ? " selected" : "");
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.style.background = "#" + b.color.toString(16).padStart(6,"0");
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = (i+1);
+    slot.appendChild(chip);
+    slot.appendChild(badge);
+    hotbar.appendChild(slot);
   });
-  blockNameEl.textContent=BLOCKS[selectedBlock].name;
+  blockNameEl.textContent = BLOCKS[selectedBlock].name;
 }
 renderHotbar();
 
-/* ---------- CONTRÔLES ---------- */
-let yaw=0,pitch=0,locked=false;
-const keys=new Set();
+/* ---------- CONTRÔLES FPS ---------- */
+let yaw=0, pitch=0, locked=false;
+const keys = new Set();
 
-startBtn.onclick=()=>renderer.domElement.requestPointerLock();
-document.addEventListener("pointerlockchange",()=>{
-  locked=document.pointerLockElement===renderer.domElement;
-  ui.style.display=locked?"none":"grid";
+startBtn.addEventListener("click", ()=> renderer.domElement.requestPointerLock());
+renderer.domElement.addEventListener("click", ()=> { if(!locked) renderer.domElement.requestPointerLock(); });
+
+document.addEventListener("pointerlockchange", ()=>{
+  locked = document.pointerLockElement === renderer.domElement;
+  ui.style.display = locked ? "none" : "grid";
 });
 
-addEventListener("mousemove",e=>{
-  if(!locked)return;
-  yaw-=e.movementX*0.002;
-  pitch-=e.movementY*0.002;
-  pitch=Math.max(-1.55,Math.min(1.55,pitch));
+addEventListener("mousemove", (e)=>{
+  if(!locked) return;
+  yaw   -= e.movementX * 0.0022;
+  pitch -= e.movementY * 0.0022;
+  pitch = Math.max(-1.55, Math.min(1.55, pitch));
 });
-addEventListener("keydown",e=>{
+
+addEventListener("keydown", (e)=>{
   keys.add(e.code);
   if(e.code.startsWith("Digit")){
-    const n=+e.code[5]-1;
-    if(BLOCKS[n]){selectedBlock=n;renderHotbar();}
+    const n = Number(e.code.replace("Digit","")) - 1;
+    if(n>=0 && n<BLOCKS.length){
+      selectedBlock = n;
+      renderHotbar();
+    }
   }
 });
-addEventListener("keyup",e=>keys.delete(e.code));
+addEventListener("keyup", (e)=> keys.delete(e.code));
 
-/* ---------- RAYCAST ---------- */
-const raycaster=new THREE.Raycaster();
-addEventListener("contextmenu",e=>e.preventDefault());
-addEventListener("mousedown",e=>{
-  if(!locked)return;
-  raycaster.setFromCamera({x:0,y:0},camera);
-  const hits=raycaster.intersectObjects([...world.values()]);
-  if(!hits.length)return;
-  const b=hits[0].object.userData;
-  if(e.button===0)removeBlock(b.x,b.y,b.z);
-  if(e.button===2){
-    const n=hits[0].face.normal;
-    addBlock(b.x+n.x,b.y+n.y,b.z+n.z,selectedBlock);
+/* ---------- RAYCAST + SURBRILLANCE ---------- */
+const raycaster = new THREE.Raycaster();
+addEventListener("contextmenu", e=>e.preventDefault());
+
+const outline = new THREE.BoxHelper(new THREE.Mesh(blockGeo), 0xffffff);
+outline.visible = false;
+scene.add(outline);
+
+function getHit(){
+  raycaster.setFromCamera({x:0,y:0}, camera);
+  return raycaster.intersectObjects([...world.values()], false);
+}
+
+addEventListener("mousedown", (e)=>{
+  if(!locked) return;
+
+  const hits = getHit();
+  if(!hits.length) return;
+
+  const hit = hits[0];
+  const b = hit.object.userData;
+
+  if(e.button===0){
+    removeBlock(b.x,b.y,b.z);
+  }else if(e.button===2){
+    const n = hit.face?.normal;
+    if(!n) return;
+    addBlock(b.x + Math.round(n.x), b.y + Math.round(n.y), b.z + Math.round(n.z), selectedBlock);
   }
 });
+
+/* ---------- PHYSIQUE SIMPLE (GRAVITÉ + COLLISIONS) ---------- */
+let velocityY = 0;
+const GRAVITY = -22;
+const JUMP_FORCE = 8.5;
+
+// hauteur “joueur” approx (caméra = tête)
+const PLAYER_HEIGHT = 1.8;
+
+// on va tester 2 points (tête/torse) en collision horizontale
+function canMoveTo(nx, nz){
+  // points à vérifier : torse + pieds (à la hauteur du corps)
+  const yHead = camera.position.y - 0.2;
+  const yBody = camera.position.y - 1.2;
+
+  // on vérifie si on rentrerait dans un bloc
+  if(hasBlockAt(nx, yHead, camera.position.z)) return false;
+  if(hasBlockAt(nx, yBody, camera.position.z)) return false;
+  if(hasBlockAt(camera.position.x, yHead, nz)) return false;
+  if(hasBlockAt(camera.position.x, yBody, nz)) return false;
+
+  return true;
+}
+
+function isGroundBelow(yCandidate){
+  // on teste sous les pieds
+  return hasBlockAt(camera.position.x, yCandidate - PLAYER_HEIGHT, camera.position.z);
+}
 
 /* ---------- LOOP ---------- */
-const clock=new THREE.Clock();
+const clock = new THREE.Clock();
+
 function animate(){
   requestAnimationFrame(animate);
-  const dt=clock.getDelta();
-  camera.rotation.set(pitch,yaw,0,"YXZ");
+  const dt = Math.min(clock.getDelta(), 0.05);
 
-  const dir=new THREE.Vector3();
-  const fwd=new THREE.Vector3();
-  camera.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
-  const right=new THREE.Vector3().crossVectors(fwd,new THREE.Vector3(0,1,0));
+  // rotation caméra
+  camera.rotation.set(pitch, yaw, 0, "YXZ");
 
-  if(keys.has("KeyW"))dir.add(fwd);
-  if(keys.has("KeyS"))dir.sub(fwd);
-  if(keys.has("KeyA"))dir.sub(right);
-  if(keys.has("KeyD"))dir.add(right);
+  // direction avant/droite
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0; forward.normalize();
+  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
 
-  if(dir.length())dir.normalize().multiplyScalar(6*dt);
-  camera.position.add(dir);
+  // vitesse
+  const speed = keys.has("ShiftLeft") ? 8 : 5;
 
-  renderer.render(scene,camera);
+  // mouvement voulu
+  let move = new THREE.Vector3();
+  if(keys.has("KeyW")) move.add(forward);
+  if(keys.has("KeyS")) move.sub(forward);
+  if(keys.has("KeyA")) move.sub(right);
+  if(keys.has("KeyD")) move.add(right);
+
+  if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
+
+  // collision horizontale (simple)
+  const nextX = camera.position.x + move.x;
+  const nextZ = camera.position.z + move.z;
+
+  // on essaie X puis Z (plus stable)
+  if(!hasBlockAt(nextX, camera.position.y - 0.2, camera.position.z) &&
+     !hasBlockAt(nextX, camera.position.y - 1.2, camera.position.z)){
+    camera.position.x = nextX;
+  }
+  if(!hasBlockAt(camera.position.x, camera.position.y - 0.2, nextZ) &&
+     !hasBlockAt(camera.position.x, camera.position.y - 1.2, nextZ)){
+    camera.position.z = nextZ;
+  }
+
+  // gravité
+  velocityY += GRAVITY * dt;
+  let nextY = camera.position.y + velocityY * dt;
+
+  // collision sol
+  if(velocityY <= 0 && isGroundBelow(nextY)){
+    velocityY = 0;
+    // placer le joueur juste au-dessus du bloc
+    camera.position.y = Math.floor(camera.position.y) + PLAYER_HEIGHT;
+  } else {
+    camera.position.y = nextY;
+  }
+
+  // collision plafond (si on saute sous un bloc)
+  if(velocityY > 0 && hasBlockAt(camera.position.x, camera.position.y, camera.position.z)){
+    velocityY = 0;
+  }
+
+  // saut (uniquement si au sol)
+  const onGround = isGroundBelow(camera.position.y);
+  if(onGround && keys.has("Space")){
+    velocityY = JUMP_FORCE;
+  }
+
+  // respawn si chute
+  if(camera.position.y < -10){
+    camera.position.set(8, 12, 18);
+    velocityY = 0;
+  }
+
+  // surlignage du bloc visé
+  const hits = getHit();
+  if(hits.length){
+    outline.visible = true;
+    outline.setFromObject(hits[0].object);
+  } else {
+    outline.visible = false;
+  }
+
+  renderer.render(scene, camera);
 }
 animate();
 
-addEventListener("resize",()=>{
-  camera.aspect=innerWidth/innerHeight;
+/* ---------- RESIZE ---------- */
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);
+  renderer.setSize(innerWidth, innerHeight);
 });
 </script>
 </body>
