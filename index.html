@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – collisions</title>
+<title>MiniCraft – collisions + mob</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -36,7 +36,10 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
 }
 
 #hint{
-  position:fixed;left:12px;bottom:12px;color:white;font-size:14px;z-index:4
+  position:fixed;left:12px;bottom:12px;color:white;font-size:14px;z-index:4;
+  background: rgba(0,0,0,.25);
+  padding: 6px 10px;
+  border-radius: 12px;
 }
 button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
 small{opacity:.8}
@@ -52,15 +55,15 @@ small{opacity:.8}
     <p style="margin:0 0 12px;line-height:1.35">
       Clique pour capturer la souris.<br>
       <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter<br>
-      <b>Clic gauche</b> : casser · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
+      <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
     </p>
     <button id="start">Jouer</button><br>
-    <small>(Astuce: Shift = plus rapide)</small>
+    <small>(Shift = courir)</small>
   </div>
 </div>
 
 <div id="hotbar"></div>
-<div id="hint">Bloc : <span id="blockName">Herbe</span></div>
+<div id="hint">Bloc : <span id="blockName">Herbe</span> · Mob: cube vert (3 PV)</div>
 
 <script type="module">
 import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
@@ -110,7 +113,7 @@ function addBlock(x,y,z,type){
   const mat = new THREE.MeshStandardMaterial({color: BLOCKS[type].color});
   const mesh = new THREE.Mesh(blockGeo, mat);
   mesh.position.set(x+0.5, y+0.5, z+0.5);
-  mesh.userData = {x,y,z,type};
+  mesh.userData = {x,y,z,type, isMob:false};
   scene.add(mesh);
   world.set(k, mesh);
 }
@@ -196,6 +199,28 @@ addEventListener("keydown", (e)=>{
 });
 addEventListener("keyup", (e)=> keys.delete(e.code));
 
+/* ---------- MOBS ---------- */
+const mobs = [];
+
+function spawnMob(x, y, z){
+  const mobGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+  const mobMat = new THREE.MeshStandardMaterial({ color: 0x7CFC00 }); // vert “slime”
+  const mob = new THREE.Mesh(mobGeo, mobMat);
+  mob.position.set(x + 0.5, y + 0.4, z + 0.5);
+  mob.userData = {
+    isMob: true,
+    hp: 3,
+    vx: 0,
+    vz: 0,
+    wanderTimer: 0
+  };
+  scene.add(mob);
+  mobs.push(mob);
+  return mob;
+}
+// Un mob au départ (on le “collera” au sol dans l’IA)
+spawnMob(10, 10, 10);
+
 /* ---------- RAYCAST + SURBRILLANCE ---------- */
 const raycaster = new THREE.Raycaster();
 addEventListener("contextmenu", e=>e.preventDefault());
@@ -206,7 +231,8 @@ scene.add(outline);
 
 function getHit(){
   raycaster.setFromCamera({x:0,y:0}, camera);
-  return raycaster.intersectObjects([...world.values()], false);
+  const targets = [...world.values(), ...mobs]; // blocs + mobs
+  return raycaster.intersectObjects(targets, false);
 }
 
 addEventListener("mousedown", (e)=>{
@@ -216,42 +242,52 @@ addEventListener("mousedown", (e)=>{
   if(!hits.length) return;
 
   const hit = hits[0];
-  const b = hit.object.userData;
+  const obj = hit.object;
 
   if(e.button===0){
+    // taper un mob ?
+    if(obj.userData?.isMob){
+      obj.userData.hp -= 1;
+
+      // petit “recul” simple (dans la direction du regard)
+      const push = new THREE.Vector3();
+      camera.getWorldDirection(push);
+      push.y = 0;
+      push.normalize().multiplyScalar(0.25);
+      obj.position.add(push);
+
+      if(obj.userData.hp <= 0){
+        scene.remove(obj);
+        obj.geometry.dispose();
+        obj.material.dispose();
+        const idx = mobs.indexOf(obj);
+        if(idx >= 0) mobs.splice(idx, 1);
+      }
+      return;
+    }
+
+    // sinon casser un bloc
+    const b = obj.userData;
     removeBlock(b.x,b.y,b.z);
-  }else if(e.button===2){
+
+  } else if(e.button===2){
+    // poser uniquement si on vise un bloc (pas un mob)
+    if(obj.userData?.isMob) return;
+
+    const b = obj.userData;
     const n = hit.face?.normal;
     if(!n) return;
     addBlock(b.x + Math.round(n.x), b.y + Math.round(n.y), b.z + Math.round(n.z), selectedBlock);
   }
 });
 
-/* ---------- PHYSIQUE SIMPLE (GRAVITÉ + COLLISIONS) ---------- */
+/* ---------- PHYSIQUE JOUEUR (GRAVITÉ + COLLISIONS) ---------- */
 let velocityY = 0;
 const GRAVITY = -22;
 const JUMP_FORCE = 8.5;
-
-// hauteur “joueur” approx (caméra = tête)
-const PLAYER_HEIGHT = 1.8;
-
-// on va tester 2 points (tête/torse) en collision horizontale
-function canMoveTo(nx, nz){
-  // points à vérifier : torse + pieds (à la hauteur du corps)
-  const yHead = camera.position.y - 0.2;
-  const yBody = camera.position.y - 1.2;
-
-  // on vérifie si on rentrerait dans un bloc
-  if(hasBlockAt(nx, yHead, camera.position.z)) return false;
-  if(hasBlockAt(nx, yBody, camera.position.z)) return false;
-  if(hasBlockAt(camera.position.x, yHead, nz)) return false;
-  if(hasBlockAt(camera.position.x, yBody, nz)) return false;
-
-  return true;
-}
+const PLAYER_HEIGHT = 1.8; // caméra = tête (approx)
 
 function isGroundBelow(yCandidate){
-  // on teste sous les pieds
   return hasBlockAt(camera.position.x, yCandidate - PLAYER_HEIGHT, camera.position.z);
 }
 
@@ -280,14 +316,12 @@ function animate(){
   if(keys.has("KeyS")) move.sub(forward);
   if(keys.has("KeyA")) move.sub(right);
   if(keys.has("KeyD")) move.add(right);
-
   if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
 
-  // collision horizontale (simple)
+  // collision horizontale joueur (simple : 2 hauteurs)
   const nextX = camera.position.x + move.x;
   const nextZ = camera.position.z + move.z;
 
-  // on essaie X puis Z (plus stable)
   if(!hasBlockAt(nextX, camera.position.y - 0.2, camera.position.z) &&
      !hasBlockAt(nextX, camera.position.y - 1.2, camera.position.z)){
     camera.position.x = nextX;
@@ -304,18 +338,17 @@ function animate(){
   // collision sol
   if(velocityY <= 0 && isGroundBelow(nextY)){
     velocityY = 0;
-    // placer le joueur juste au-dessus du bloc
     camera.position.y = Math.floor(camera.position.y) + PLAYER_HEIGHT;
   } else {
     camera.position.y = nextY;
   }
 
-  // collision plafond (si on saute sous un bloc)
+  // plafond
   if(velocityY > 0 && hasBlockAt(camera.position.x, camera.position.y, camera.position.z)){
     velocityY = 0;
   }
 
-  // saut (uniquement si au sol)
+  // saut (au sol)
   const onGround = isGroundBelow(camera.position.y);
   if(onGround && keys.has("Space")){
     velocityY = JUMP_FORCE;
@@ -327,7 +360,58 @@ function animate(){
     velocityY = 0;
   }
 
-  // surlignage du bloc visé
+  /* ---------- IA MOBS ---------- */
+  const playerPos = camera.position;
+
+  for(const mob of mobs){
+    // “coller” le mob au sol (simple)
+    let grounded = false;
+    for(let yy = Math.floor(mob.position.y); yy >= -2; yy--){
+      if(hasBlockAt(mob.position.x, yy, mob.position.z)){
+        mob.position.y = yy + 0.9;
+        grounded = true;
+        break;
+      }
+    }
+    if(!grounded) mob.position.y -= 5 * dt;
+
+    // distance joueur
+    const dx = playerPos.x - mob.position.x;
+    const dz = playerPos.z - mob.position.z;
+    const dist = Math.hypot(dx, dz);
+
+    const mobSpeed = 1.8;
+
+    if(dist < 7 && dist > 0.001){
+      // il te suit
+      mob.userData.vx = (dx / dist) * mobSpeed;
+      mob.userData.vz = (dz / dist) * mobSpeed;
+    } else {
+      // il se promène
+      mob.userData.wanderTimer -= dt;
+      if(mob.userData.wanderTimer <= 0){
+        mob.userData.wanderTimer = 1 + Math.random() * 2;
+        const a = Math.random() * Math.PI * 2;
+        mob.userData.vx = Math.cos(a) * (mobSpeed * 0.5);
+        mob.userData.vz = Math.sin(a) * (mobSpeed * 0.5);
+      }
+    }
+
+    // collision mob vs blocs (simple)
+    const nx = mob.position.x + mob.userData.vx * dt;
+    const nz = mob.position.z + mob.userData.vz * dt;
+
+    if(!hasBlockAt(nx, mob.position.y - 0.3, mob.position.z)) mob.position.x = nx;
+    else mob.userData.vx *= -0.3;
+
+    if(!hasBlockAt(mob.position.x, mob.position.y - 0.3, nz)) mob.position.z = nz;
+    else mob.userData.vz *= -0.3;
+
+    // petite animation
+    mob.rotation.y += 0.8 * dt;
+  }
+
+  // surlignage du bloc (ou mob) visé
   const hits = getHit();
   if(hits.length){
     outline.visible = true;
