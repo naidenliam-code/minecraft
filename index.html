@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – sprint FOV + jour/nuit + mob</title>
+<title>MiniCraft – Chunks + Sprint + Jour/Nuit + Mob</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
@@ -38,6 +38,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
   background: rgba(0,0,0,.25);
   padding: 6px 10px;
   border-radius: 12px;
+  max-width: 92vw;
 }
 button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
 small{opacity:.8}
@@ -48,22 +49,22 @@ small{opacity:.8}
 <div id="crosshair"></div>
 
 <div id="ui">
-  <div style="text-align:center;max-width:520px;padding:18px">
+  <div style="text-align:center;max-width:560px;padding:18px">
     <h1 style="margin:0 0 10px">MiniCraft</h1>
     <p style="margin:0 0 12px;line-height:1.35">
       Clique pour capturer la souris.<br>
       <b>WASD</b> : bouger · <b>Souris</b> : regarder · <b>Espace</b> : sauter (1 fois par appui)<br>
-      <b>Shift</b> : courir (FOV dynamique) · <b>N</b> : pause cycle jour/nuit<br>
-      <b>Clic gauche</b> : casser / taper le mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
+      <b>Shift</b> : courir (FOV) · <b>N</b> : pause jour/nuit<br>
+      <b>Clic gauche</b> : casser / taper mob · <b>Clic droit</b> : poser · <b>1–5</b> : blocs
     </p>
     <button id="start">Jouer</button><br>
-    <small>(Mob = cube vert)</small>
+    <small>(Chunks: le monde se charge autour de toi)</small>
   </div>
 </div>
 
 <div id="hotbar"></div>
 <div id="hint">
-  Bloc : <span id="blockName">Herbe</span> · Temps: <span id="tod">Jour</span>
+  Bloc : <span id="blockName">Herbe</span> · Temps: <span id="tod">Jour</span> · Chunk: <span id="chunkInfo">0,0</span>
 </div>
 
 <script type="module">
@@ -75,6 +76,7 @@ const startBtn = document.getElementById("start");
 const hotbar = document.getElementById("hotbar");
 const blockNameEl = document.getElementById("blockName");
 const todEl = document.getElementById("tod");
+const chunkInfoEl = document.getElementById("chunkInfo");
 
 /* ---------- SCÈNE ---------- */
 const scene = new THREE.Scene();
@@ -82,11 +84,11 @@ scene.background = new THREE.Color(0x87ceeb);
 
 const BASE_FOV = 75;
 const SPRINT_FOV = 88;
-const FOV_SPEED = 10; // vitesse de transition (plus grand = plus rapide)
+const FOV_SPEED = 10;
 let currentFov = BASE_FOV;
 
-const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.1, 300);
-camera.position.set(8, 12, 18);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.1, 500);
+camera.position.set(8, 20, 18);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth, innerHeight);
@@ -105,7 +107,6 @@ const sunBall = new THREE.Mesh(
   new THREE.SphereGeometry(1.1, 18, 18),
   new THREE.MeshBasicMaterial({ color: 0xfff1a8 })
 );
-sunBall.position.set(25, 35, -25);
 scene.add(sunBall);
 
 /* ---------- BLOCS ---------- */
@@ -119,10 +120,26 @@ const BLOCKS = [
 let selectedBlock = 0;
 
 const blockGeo = new THREE.BoxGeometry(1,1,1);
-const world = new Map();
+
+/*
+  world = meshes réellement présents (pour raycast + collisions)
+  overrides = modifications persistantes (pose/casse) qui “écrasent” le terrain procédural
+    - valeur = type (0..n) => bloc forcé
+    - valeur = null       => bloc supprimé
+*/
+const world = new Map();          // key "x,y,z" -> mesh
+const overrides = new Map();      // key "x,y,z" -> number|null
+
 const key = (x,y,z)=>`${x},${y},${z}`;
 
-function addBlock(x,y,z,type){
+function hasBlockAt(wx, wy, wz){
+  const bx = Math.floor(wx);
+  const by = Math.floor(wy);
+  const bz = Math.floor(wz);
+  return world.has(`${bx},${by},${bz}`);
+}
+
+function addBlockMesh(x,y,z,type){
   const k = key(x,y,z);
   if(world.has(k)) return;
 
@@ -133,7 +150,8 @@ function addBlock(x,y,z,type){
   scene.add(mesh);
   world.set(k, mesh);
 }
-function removeBlock(x,y,z){
+
+function removeBlockMesh(x,y,z){
   const k = key(x,y,z);
   const mesh = world.get(k);
   if(!mesh) return;
@@ -142,27 +160,153 @@ function removeBlock(x,y,z){
   mesh.material.dispose();
   world.delete(k);
 }
-function hasBlockAt(wx, wy, wz){
-  const bx = Math.floor(wx);
-  const by = Math.floor(wy);
-  const bz = Math.floor(wz);
-  return world.has(`${bx},${by},${bz}`);
+
+/* ---------- CHUNKS ---------- */
+const CHUNK_SIZE = 16;
+const RENDER_DISTANCE = 2; // 2 => (2*2+1)^2 = 25 chunks chargés
+
+const chunks = new Map(); // chunkKey "cx,cz" -> { blocks: string[] }
+
+const chunkKey = (cx,cz)=>`${cx},${cz}`;
+const worldToChunk = (x)=>Math.floor(x / CHUNK_SIZE);
+
+// relief procédural (simple mais sympa)
+const SEED = 1337;
+function heightAt(x,z){
+  // x,z entiers monde
+  const fx = (x + SEED) * 0.11;
+  const fz = (z - SEED) * 0.11;
+  const h = 8
+    + Math.sin(fx) * 2.4
+    + Math.cos(fz) * 2.4
+    + Math.sin((fx+fz)*0.7) * 1.6;
+  return Math.max(2, Math.floor(h));
 }
 
-/* ---------- GÉNÉRATION MINI MONDE ---------- */
-const W=16, D=16;
-for(let x=0;x<W;x++){
-  for(let z=0;z<D;z++){
-    const h = 3 + Math.floor(1.2*Math.sin(x*0.55) + 1.2*Math.cos(z*0.55));
-    for(let y=0;y<h;y++){
-      const type = (y===h-1) ? 0 : (y>=h-3 ? 1 : 2);
-      addBlock(x,y,z,type);
+function proceduralTypeAt(x,y,z){
+  // retourne type bloc (0..), ou null si rien
+  const h = heightAt(x,z);
+  if(y > h) return null;
+  if(y === h) return 0;               // herbe
+  if(y >= h - 2) return 1;            // terre
+  return 2;                           // pierre
+}
+
+function generateChunk(cx, cz){
+  const ck = chunkKey(cx,cz);
+  if(chunks.has(ck)) return;
+
+  const blocksInChunk = [];
+
+  const startX = cx * CHUNK_SIZE;
+  const startZ = cz * CHUNK_SIZE;
+
+  for(let lx=0; lx<CHUNK_SIZE; lx++){
+    for(let lz=0; lz<CHUNK_SIZE; lz++){
+      const x = startX + lx;
+      const z = startZ + lz;
+
+      const h = heightAt(x,z);
+      for(let y=0; y<=h; y++){
+        const k = key(x,y,z);
+
+        // overrides ?
+        if(overrides.has(k)){
+          const ov = overrides.get(k);
+          if(ov === null) continue;       // supprimé
+          addBlockMesh(x,y,z,ov);
+          blocksInChunk.push(k);
+          continue;
+        }
+
+        const t = proceduralTypeAt(x,y,z);
+        if(t === null) continue;
+        addBlockMesh(x,y,z,t);
+        blocksInChunk.push(k);
+      }
+
+      // mini "décor" : un arbre très rare
+      const rare = (Math.abs((x*73856093) ^ (z*19349663) ^ SEED) % 1800) === 0;
+      if(rare){
+        const baseY = heightAt(x,z);
+        for(let yy=baseY+1; yy<=baseY+3; yy++){
+          const k = key(x,yy,z);
+          if(overrides.get(k) === null) continue;
+          if(overrides.has(k) && typeof overrides.get(k) === "number"){
+            addBlockMesh(x,yy,z,overrides.get(k));
+          } else {
+            addBlockMesh(x,yy,z,3); // bois
+          }
+          blocksInChunk.push(k);
+        }
+        // feuilles en herbe (simple)
+        for(let ax=-1; ax<=1; ax++){
+          for(let az=-1; az<=1; az++){
+            const k2 = key(x+ax, baseY+4, z+az);
+            if(overrides.get(k2) === null) continue;
+            if(overrides.has(k2) && typeof overrides.get(k2) === "number"){
+              addBlockMesh(x+ax, baseY+4, z+az, overrides.get(k2));
+            } else {
+              addBlockMesh(x+ax, baseY+4, z+az, 0);
+            }
+            blocksInChunk.push(k2);
+          }
+        }
+      }
     }
   }
+
+  chunks.set(ck, { blocks: blocksInChunk });
 }
-// arbre
-for(let y=5;y<8;y++) addBlock(5,y,5,3);
-addBlock(4,8,5,0); addBlock(5,8,4,0); addBlock(5,8,5,0); addBlock(6,8,5,0); addBlock(5,8,6,0);
+
+function unloadChunk(cx, cz){
+  const ck = chunkKey(cx,cz);
+  const ch = chunks.get(ck);
+  if(!ch) return;
+
+  // on enlève uniquement les blocs de ce chunk
+  // MAIS si un bloc appartient à un override, il peut être rechargé plus tard: ok.
+  for(const bk of ch.blocks){
+    const [sx,sy,sz] = bk.split(",").map(Number);
+    // on supprime le mesh seulement s'il est toujours là
+    removeBlockMesh(sx,sy,sz);
+  }
+
+  chunks.delete(ck);
+}
+
+let lastChunkCX = null, lastChunkCZ = null;
+let chunkUpdateTimer = 0;
+
+function updateChunks(force=false){
+  const cx = worldToChunk(camera.position.x);
+  const cz = worldToChunk(camera.position.z);
+
+  if(!force && cx === lastChunkCX && cz === lastChunkCZ) return;
+  lastChunkCX = cx; lastChunkCZ = cz;
+
+  // charge autour
+  const needed = new Set();
+  for(let dx=-RENDER_DISTANCE; dx<=RENDER_DISTANCE; dx++){
+    for(let dz=-RENDER_DISTANCE; dz<=RENDER_DISTANCE; dz++){
+      const ncx = cx + dx;
+      const ncz = cz + dz;
+      const ck = chunkKey(ncx,ncz);
+      needed.add(ck);
+      generateChunk(ncx,ncz);
+    }
+  }
+
+  // décharge loin
+  for(const ck of chunks.keys()){
+    if(!needed.has(ck)){
+      const [ccx, ccz] = ck.split(",").map(Number);
+      unloadChunk(ccx, ccz);
+    }
+  }
+
+  chunkInfoEl.textContent = `${cx},${cz}`;
+}
 
 /* ---------- HOTBAR ---------- */
 function renderHotbar(){
@@ -247,7 +391,8 @@ function spawnMob(x, y, z){
   mobs.push(mob);
   return mob;
 }
-spawnMob(10, 10, 10);
+// mob près du spawn
+spawnMob(10, 12, 10);
 
 /* ---------- RAYCAST + OUTLINE ---------- */
 const raycaster = new THREE.Raycaster();
@@ -263,6 +408,18 @@ function getHit(){
   return raycaster.intersectObjects(targets, false);
 }
 
+function canPlaceAt(x,y,z){
+  // évite de poser dans le joueur (grossier)
+  const px = camera.position.x;
+  const py = camera.position.y;
+  const pz = camera.position.z;
+  const dx = (x+0.5) - px;
+  const dz = (z+0.5) - pz;
+  const closeXZ = (dx*dx + dz*dz) < 0.7*0.7;
+  const closeY = Math.abs((y+0.9) - (py-1.0)) < 1.8;
+  return !(closeXZ && closeY);
+}
+
 addEventListener("mousedown", (e)=>{
   if(!locked) return;
 
@@ -273,6 +430,7 @@ addEventListener("mousedown", (e)=>{
   const obj = hit.object;
 
   if(e.button===0){
+    // taper un mob ?
     if(obj.userData?.isMob){
       obj.userData.hp -= 1;
       const push = new THREE.Vector3();
@@ -291,15 +449,28 @@ addEventListener("mousedown", (e)=>{
       return;
     }
 
+    // casser bloc (persistant)
     const b = obj.userData;
-    removeBlock(b.x,b.y,b.z);
+    const k = key(b.x,b.y,b.z);
+    overrides.set(k, null);
+    removeBlockMesh(b.x,b.y,b.z);
 
   } else if(e.button===2){
+    // poser seulement si on vise un bloc
     if(obj.userData?.isMob) return;
     const b = obj.userData;
     const n = hit.face?.normal;
     if(!n) return;
-    addBlock(b.x + Math.round(n.x), b.y + Math.round(n.y), b.z + Math.round(n.z), selectedBlock);
+
+    const nx = b.x + Math.round(n.x);
+    const ny = b.y + Math.round(n.y);
+    const nz = b.z + Math.round(n.z);
+
+    if(!canPlaceAt(nx,ny,nz)) return;
+
+    const k = key(nx,ny,nz);
+    overrides.set(k, selectedBlock);
+    addBlockMesh(nx,ny,nz,selectedBlock);
   }
 });
 
@@ -324,10 +495,10 @@ function updateDayNight(dt){
   const sunY = Math.sin(angle);
   const sunHeight = clamp01((sunY + 0.1) / 1.1);
 
-  const radius = 45;
+  const radius = 55;
   sun.position.set(
     Math.cos(angle) * radius,
-    lerp(-10, 35, sunHeight),
+    lerp(-10, 45, sunHeight),
     Math.sin(angle) * radius
   );
   sunBall.position.copy(sun.position);
@@ -369,6 +540,16 @@ function snapToGround(playerY){
   return (by + 1) + PLAYER_HEIGHT;
 }
 
+/* ---------- BOOTSTRAP CHUNKS ---------- */
+updateChunks(true);
+// spawn au-dessus du terrain
+{
+  const sx = Math.floor(camera.position.x);
+  const sz = Math.floor(camera.position.z);
+  const h = heightAt(sx,sz);
+  camera.position.y = h + 1 + PLAYER_HEIGHT;
+}
+
 /* ---------- LOOP ---------- */
 const clock = new THREE.Clock();
 
@@ -376,9 +557,16 @@ function animate(){
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
 
+  // update chunks pas à chaque frame (pour éviter de lag)
+  chunkUpdateTimer += dt;
+  if(chunkUpdateTimer > 0.35){
+    chunkUpdateTimer = 0;
+    updateChunks(false);
+  }
+
   updateDayNight(dt);
 
-  // FOV dynamique (Sprint)
+  // sprint + FOV
   const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
   const targetFov = sprinting ? SPRINT_FOV : BASE_FOV;
   currentFov = currentFov + (targetFov - currentFov) * Math.min(1, FOV_SPEED * dt);
@@ -389,12 +577,12 @@ function animate(){
 
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 
+  // direction
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0; forward.normalize();
   const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
 
-  // vitesse sprint
   const speed = sprinting ? 8 : 5;
 
   let move = new THREE.Vector3();
@@ -404,7 +592,7 @@ function animate(){
   if(keys.has("KeyD")) move.add(right);
   if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
 
-  // collision horizontale
+  // collision horizontale (2 hauteurs)
   const nextX = camera.position.x + move.x;
   const nextZ = camera.position.z + move.z;
 
@@ -425,7 +613,6 @@ function animate(){
     newY = snapToGround(newY);
     velocityY = 0;
   }
-
   if(velocityY > 0 && hasBlockAt(camera.position.x, newY - 0.1, camera.position.z)){
     velocityY = 0;
   }
@@ -439,16 +626,21 @@ function animate(){
   }
   jumpQueued = false;
 
-  if(camera.position.y < -10){
-    camera.position.set(8, 12, 18);
+  // respawn si chute
+  if(camera.position.y < -20){
+    const sx = Math.floor(camera.position.x);
+    const sz = Math.floor(camera.position.z);
+    const h = heightAt(sx,sz);
+    camera.position.set(sx+0.5, h + 1 + PLAYER_HEIGHT, sz+0.5);
     velocityY = 0;
   }
 
-  // IA mobs
+  // IA mobs (simple)
   const playerPos = camera.position;
   const isNight = todEl.textContent.includes("Nuit");
 
   for(const mob of mobs){
+    // coller au sol
     let grounded = false;
     for(let yy = Math.floor(mob.position.y); yy >= -2; yy--){
       if(hasBlockAt(mob.position.x, yy, mob.position.z)){
@@ -503,6 +695,7 @@ function animate(){
 }
 animate();
 
+/* ---------- RESIZE ---------- */
 addEventListener("resize", ()=>{
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
