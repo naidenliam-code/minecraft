@@ -1,31 +1,7 @@
 <!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MiniCraft – Debug</title>
-  <link rel="stylesheet" href="src/style.css">
-  <style>
-    #debug{position:fixed;left:10px;top:10px;right:10px;max-height:45vh;overflow:auto;
-      background:rgba(0,0,0,.75);color:#0f0;padding:10px;border-radius:10px;font:12px/1.3 monospace;z-index:9999;white-space:pre-wrap}
-  </style>
-</head>
-<body>
-  <div id="ui"></div>
-  <div id="debug">debug: ok</div>
-
-  <script>
-    window.addEventListener("error", (e)=>{
-      document.getElementById("debug").textContent += "\nJS error: " + (e.message || e.error);
-    });
-    window.addEventListener("unhandledrejection", (e)=>{
-      document.getElementById("debug").textContent += "\nPromise error: " + (e.reason?.message || e.reason);
-    });
-  </script>
-
-  <script type="module">
-    import "./src/main.js";
-    document.getElementById("debug").textContent += "\nmain.js import: ok";
-  </script>
+<html>
+<body style="background:black;color:lime;font-family:monospace">
+<h1>MiniCraft</h1>
+<p>Si tu vois ce texte, GitHub Pages fonctionne.</p>
 </body>
 </html>
