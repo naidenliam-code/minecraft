@@ -1,0 +1,44 @@
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
+canvas{display:block}
+
+#overlay{
+  position:fixed;inset:0;display:grid;place-items:center;
+  background:rgba(0,0,0,.6);color:#fff;z-index:10
+}
+#overlay .box{max-width:720px;padding:18px;text-align:center}
+#overlay button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
+
+#crosshair{
+  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:12px;height:12px;pointer-events:none;z-index:5
+}
+#crosshair::before,#crosshair::after{content:"";position:absolute;background:white}
+#crosshair::before{width:12px;height:2px;top:5px}
+#crosshair::after{width:2px;height:12px;left:5px}
+
+#hotbar{
+  position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+  display:flex;gap:10px;padding:10px;background:rgba(0,0,0,.4);
+  border-radius:16px;z-index:6;flex-wrap:wrap;justify-content:center;max-width:92vw
+}
+.slot{
+  width:44px;height:44px;border-radius:12px;border:2px solid rgba(255,255,255,.3);
+  display:grid;place-items:center;color:white;position:relative;user-select:none
+}
+.slot.selected{border-color:white;transform:translateY(-2px)}
+.chip{width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.25)}
+.badge{
+  position:absolute;right:6px;bottom:4px;font-size:11px;opacity:.92;
+  background:rgba(0,0,0,.45);padding:1px 5px;border-radius:999px
+}
+.badge.empty{opacity:.45}
+
+#hint{
+  position:fixed;left:12px;bottom:12px;color:white;font-size:14px;z-index:6;
+  background:rgba(0,0,0,.25);padding:6px 10px;border-radius:12px;max-width:92vw
+}
+#toast{
+  position:fixed;left:50%;bottom:92px;transform:translateX(-50%);
+  color:white;z-index:7;background:rgba(0,0,0,.45);
+  padding:6px 10px;border-radius:12px;opacity:0;transition:opacity .15s
+}
