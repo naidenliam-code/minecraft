@@ -2,10 +2,10 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>MiniCraft – FAST + Inventaire + Drops</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniCraft – FAST + Inventaire + Drops + Mobile</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
-html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui}
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui;touch-action:none}
 #ui{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.6);color:#fff;z-index:6}
 #crosshair{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;pointer-events:none;z-index:4}
 #crosshair::before,#crosshair::after{content:"";position:absolute;background:white}
@@ -13,7 +13,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
 #crosshair::after{width:2px;height:12px;left:5px}
 
 #hotbar{
-  position:fixed;left:50%;bottom:20px;transform:translateX(-50%);
+  position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
   display:flex;gap:10px;padding:10px;background:rgba(0,0,0,.4);
   border-radius:16px;z-index:4;flex-wrap:wrap;justify-content:center;max-width:92vw
 }
@@ -24,7 +24,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
 .slot.selected{border-color:white;transform:translateY(-2px)}
 .chip{width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.25)}
 .badge{
-  position:absolute;right:6px;bottom:4px;font-size:11px;opacity:.9;
+  position:absolute;right:6px;bottom:4px;font-size:11px;opacity:.92;
   background:rgba(0,0,0,.45);padding:1px 5px;border-radius:999px
 }
 .badge.empty{opacity:.45}
@@ -34,12 +34,40 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:syste
   background:rgba(0,0,0,.25);padding:6px 10px;border-radius:12px;max-width:92vw
 }
 #toast{
-  position:fixed;left:50%;bottom:88px;transform:translateX(-50%);
+  position:fixed;left:50%;bottom:92px;transform:translateX(-50%);
   color:white;z-index:5;background:rgba(0,0,0,.45);
   padding:6px 10px;border-radius:12px;opacity:0;transition:opacity .15s
 }
 button{padding:10px 16px;border-radius:12px;border:0;cursor:pointer}
 small{opacity:.8}
+
+/* --- Mobile controls --- */
+#mobile{
+  position:fixed;inset:0;pointer-events:none;z-index:7;display:none;
+}
+.pad{
+  position:absolute;bottom:110px;width:42vw;max-width:260px;height:42vw;max-height:260px;
+  border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  pointer-events:auto;touch-action:none;
+}
+#padL{left:14px;}
+#padR{right:14px;background:rgba(255,255,255,.04);}
+.knob{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:34%;height:34%;border-radius:999px;background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.18)
+}
+#btns{
+  position:absolute;right:14px;bottom:18px;display:flex;gap:10px;pointer-events:auto;
+}
+.mbtn{
+  width:54px;height:54px;border-radius:16px;border:1px solid rgba(255,255,255,.2);
+  background:rgba(0,0,0,.35);color:white;font-size:14px;
+}
+.mbtn:active{transform:scale(.96)}
+#btnsL{
+  position:absolute;left:14px;bottom:18px;display:flex;gap:10px;pointer-events:auto;
+}
 </style>
 </head>
 
@@ -47,15 +75,15 @@ small{opacity:.8}
 <div id="crosshair"></div>
 
 <div id="ui">
-  <div style="text-align:center;max-width:700px;padding:18px">
-    <h1 style="margin:0 0 10px">MiniCraft (FAST + Inventaire)</h1>
+  <div style="text-align:center;max-width:720px;padding:18px">
+    <h1 style="margin:0 0 10px">MiniCraft</h1>
     <p style="margin:0 0 12px;line-height:1.35">
-      Chromebook mode : surface + chunks + inventaire ✅<br>
-      <b>WASD</b> bouger · <b>Souris</b> regarder · <b>Espace</b> sauter (1 fois/appui) · <b>Shift</b> courir<br>
-      <b>1–7</b> blocs · <b>Clic gauche</b> casser (drop) · <b>Clic droit</b> poser (consomme)
+      PC: <b>WASD</b> bouger · <b>Souris</b> regarder · <b>Espace</b> sauter · <b>Shift</b> courir<br>
+      <b>1–7</b> blocs · <b>Clic gauche</b> casser (drop) · <b>Clic droit</b> poser (consomme)<br><br>
+      GSM: joystick gauche = bouger · joystick droit = regarder · boutons = action
     </p>
     <button id="start">Jouer</button><br>
-    <small>(Tu ramasses les drops en marchant dessus.)</small>
+    <small>Si écran noir: c’était un bug JS corrigé ici ✅</small>
   </div>
 </div>
 
@@ -64,6 +92,21 @@ small{opacity:.8}
 <div id="hint">
   Bloc : <span id="blockName">Herbe</span> · Temps: <span id="tod">Jour</span> ·
   Chunk: <span id="chunkInfo">0,0</span> · Biome: <span id="biomeInfo">Plaine</span>
+</div>
+
+<!-- Mobile overlay -->
+<div id="mobile">
+  <div id="padL" class="pad"><div class="knob" id="knobL"></div></div>
+  <div id="padR" class="pad"><div class="knob" id="knobR"></div></div>
+
+  <div id="btnsL">
+    <button class="mbtn" id="btnSprint">RUN</button>
+  </div>
+  <div id="btns">
+    <button class="mbtn" id="btnBreak">⛏</button>
+    <button class="mbtn" id="btnPlace">⬛</button>
+    <button class="mbtn" id="btnJump">⤴</button>
+  </div>
 </div>
 
 <script type="module">
@@ -79,6 +122,17 @@ const chunkInfoEl = document.getElementById("chunkInfo");
 const biomeInfoEl = document.getElementById("biomeInfo");
 const toastEl = document.getElementById("toast");
 
+/* Mobile DOM */
+const mobileUI = document.getElementById("mobile");
+const padL = document.getElementById("padL");
+const padR = document.getElementById("padR");
+const knobL = document.getElementById("knobL");
+const knobR = document.getElementById("knobR");
+const btnJump = document.getElementById("btnJump");
+const btnBreak = document.getElementById("btnBreak");
+const btnPlace = document.getElementById("btnPlace");
+const btnSprint = document.getElementById("btnSprint");
+
 /* ---------- SCÈNE ---------- */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -91,9 +145,14 @@ let currentFov = BASE_FOV;
 const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.1, 500);
 camera.position.set(8, 25, 18);
 
-const renderer = new THREE.WebGLRenderer({antialias:false, powerPreference:"low-power"});
+const isMobile = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: !isMobile,
+  powerPreference:"low-power"
+});
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(1); // ✅ Chromebook
+renderer.setPixelRatio(isMobile ? 1 : Math.min(devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
 /* ---------- LUMIÈRES ---------- */
@@ -152,11 +211,7 @@ function removeBlockMesh(x,y,z){
   world.delete(k);
 }
 
-/* ---------- INVENTAIRE ---------- */
-const inv = new Array(BLOCKS.length).fill(0);
-// petit “starter kit” pour pouvoir jouer direct
-inv[0]=40; inv[1]=40; inv[2]=30; inv[3]=20; inv[4]=30; inv[5]=10; inv[6]=5;
-
+/* ---------- Toast ---------- */
 function toast(msg){
   toastEl.textContent = msg;
   toastEl.style.opacity = "1";
@@ -164,7 +219,10 @@ function toast(msg){
   toast._t = setTimeout(()=>toastEl.style.opacity="0", 850);
 }
 
-/* ---------- HOTBAR (avec quantités) ---------- */
+/* ---------- INVENTAIRE ---------- */
+const inv = new Array(BLOCKS.length).fill(0);
+inv[0]=40; inv[1]=40; inv[2]=30; inv[3]=20; inv[4]=30; inv[5]=10; inv[6]=5;
+
 function renderHotbar(){
   hotbar.innerHTML = "";
   BLOCKS.forEach((b,i)=>{
@@ -175,7 +233,8 @@ function renderHotbar(){
     chip.style.background = "#" + b.color.toString(16).padStart(6,"0");
 
     const badge = document.createElement("div");
-    badge.className = "badge" + (inv( inv[i]===0 ) ? " empty" : "");
+    // ✅ BUG FIX ICI (pas de fonction bizarre, juste un test)
+    badge.className = "badge" + (inv[i]===0 ? " empty" : "");
     badge.textContent = inv[i];
 
     slot.appendChild(chip);
@@ -193,25 +252,35 @@ function updateHotbarCounts(){
   });
   blockNameEl.textContent = BLOCKS[selectedBlock].name;
 }
-function R(x){ return x; } // mini helper (évite un warning si tu copies/colles)
 renderHotbar();
 
-/* ---------- CONTROLES ---------- */
+/* ---------- CONTROLES (PC + Mobile) ---------- */
 let yaw=0, pitch=0, locked=false;
 const keys = new Set();
-let spaceDown = false;
-let jumpQueued = false;
 
-startBtn.addEventListener("click", ()=> renderer.domElement.requestPointerLock());
-renderer.domElement.addEventListener("click", ()=> { if(!locked) renderer.domElement.requestPointerLock(); });
+let spaceDown=false, jumpQueued=false;
+let sprintToggleMobile=false;
+
+function requestLockOrStart(){
+  if(!isMobile){
+    renderer.domElement.requestPointerLock();
+  } else {
+    locked = true; // en mobile on n'utilise pas pointerlock
+    ui.style.display = "none";
+    mobileUI.style.display = "block";
+  }
+}
+startBtn.addEventListener("click", requestLockOrStart);
+renderer.domElement.addEventListener("click", ()=>{ if(!locked) requestLockOrStart(); });
 
 document.addEventListener("pointerlockchange", ()=>{
+  if(isMobile) return;
   locked = document.pointerLockElement === renderer.domElement;
   ui.style.display = locked ? "none" : "grid";
 });
 
 addEventListener("mousemove", (e)=>{
-  if(!locked) return;
+  if(!locked || isMobile) return;
   yaw   -= e.movementX * 0.0022;
   pitch -= e.movementY * 0.0022;
   pitch = Math.max(-1.55, Math.min(1.55, pitch));
@@ -219,31 +288,80 @@ addEventListener("mousemove", (e)=>{
 
 addEventListener("keydown", (e)=>{
   keys.add(e.code);
-
   if(e.code === "Space" && !e.repeat){
-    if(!spaceDown){
-      spaceDown = true;
-      jumpQueued = true;
-    }
+    if(!spaceDown){ spaceDown=true; jumpQueued=true; }
   }
-
-  if(e.code === "KeyN" && !e.repeat){
-    dayCycleEnabled = !dayCycleEnabled;
-  }
-
+  if(e.code === "KeyN" && !e.repeat){ dayCycleEnabled = !dayCycleEnabled; }
   if(e.code.startsWith("Digit")){
     const n = Number(e.code.replace("Digit","")) - 1;
-    if(n>=0 && n<BLOCKS.length){
-      selectedBlock = n;
-      renderHotbar();
-    }
+    if(n>=0 && n<BLOCKS.length){ selectedBlock=n; renderHotbar(); }
   }
 });
-
 addEventListener("keyup", (e)=>{
   keys.delete(e.code);
-  if(e.code === "Space") spaceDown = false;
+  if(e.code === "Space") spaceDown=false;
 });
+
+/* ---------- Mobile pads (joystick) ---------- */
+let moveStick = {x:0,y:0};
+let lookStick = {x:0,y:0};
+function bindPad(pad, knob, out){
+  let activeId = null;
+  let rect = null;
+
+  function setKnob(dx,dy){
+    const r = rect.width/2;
+    const mag = Math.hypot(dx,dy);
+    const max = r*0.65;
+    let sx=dx, sy=dy;
+    if(mag>max){ sx = dx*(max/mag); sy = dy*(max/mag); }
+    knob.style.left = (50 + (sx/r)*50) + "%";
+    knob.style.top  = (50 + (sy/r)*50) + "%";
+    out.x = sx/max;
+    out.y = sy/max;
+  }
+  function reset(){
+    knob.style.left="50%"; knob.style.top="50%";
+    out.x=0; out.y=0;
+    activeId=null;
+  }
+
+  pad.addEventListener("touchstart",(ev)=>{
+    ev.preventDefault();
+    const t = ev.changedTouches[0];
+    activeId = t.identifier;
+    rect = pad.getBoundingClientRect();
+    const dx = t.clientX - (rect.left + rect.width/2);
+    const dy = t.clientY - (rect.top  + rect.height/2);
+    setKnob(dx,dy);
+  }, {passive:false});
+
+  pad.addEventListener("touchmove",(ev)=>{
+    ev.preventDefault();
+    for(const t of ev.changedTouches){
+      if(t.identifier !== activeId) continue;
+      const dx = t.clientX - (rect.left + rect.width/2);
+      const dy = t.clientY - (rect.top  + rect.height/2);
+      setKnob(dx,dy);
+      break;
+    }
+  }, {passive:false});
+
+  pad.addEventListener("touchend",(ev)=>{
+    for(const t of ev.changedTouches){
+      if(t.identifier === activeId){ reset(); break; }
+    }
+  }, {passive:true});
+
+  pad.addEventListener("touchcancel", reset, {passive:true});
+}
+if(isMobile){
+  bindPad(padL, knobL, moveStick);
+  bindPad(padR, knobR, lookStick);
+
+  btnJump.addEventListener("touchstart",(e)=>{ e.preventDefault(); jumpQueued=true; },{passive:false});
+  btnSprint.addEventListener("touchstart",(e)=>{ e.preventDefault(); sprintToggleMobile=!sprintToggleMobile; btnSprint.textContent = sprintToggleMobile?"RUN✓":"RUN"; },{passive:false});
+}
 
 /* ---------- RAYCAST + OUTLINE ---------- */
 const raycaster = new THREE.Raycaster();
@@ -257,20 +375,16 @@ function getHit(){
   raycaster.setFromCamera({x:0,y:0}, camera);
   return raycaster.intersectObjects([...world.values()], false);
 }
-
 function canPlaceAt(x,y,z){
-  const px = camera.position.x;
-  const py = camera.position.y;
-  const pz = camera.position.z;
-  const dx = (x+0.5) - px;
-  const dz = (z+0.5) - pz;
-  const closeXZ = (dx*dx + dz*dz) < 0.7*0.7;
+  const px=camera.position.x, py=camera.position.y, pz=camera.position.z;
+  const dx=(x+0.5)-px, dz=(z+0.5)-pz;
+  const closeXZ = (dx*dx+dz*dz) < 0.7*0.7;
   const closeY = Math.abs((y+0.9) - (py-1.0)) < 1.8;
   return !(closeXZ && closeY);
 }
 
 /* ---------- DROPS ---------- */
-const drops = []; // {mesh, type, vy, spin, cooldown}
+const drops = [];
 const DROP_GRAV = -16;
 
 function spawnDrop(type, x, y, z){
@@ -278,15 +392,8 @@ function spawnDrop(type, x, y, z){
   const m = new THREE.Mesh(dropGeo, mat);
   m.position.set(x+0.5, y+0.75, z+0.5);
   scene.add(m);
-  drops.push({
-    mesh:m,
-    type,
-    vy: 1.2 + Math.random()*0.8,
-    spin: (Math.random()*2-1)*2.0,
-    cooldown: 0.25
-  });
+  drops.push({ mesh:m, type, vy: 1.2 + Math.random()*0.8, spin:(Math.random()*2-1)*2.0, cooldown:0.25 });
 }
-
 function removeDrop(d){
   scene.remove(d.mesh);
   d.mesh.geometry.dispose();
@@ -295,7 +402,7 @@ function removeDrop(d){
 
 /* ---------- CHUNKS + BIOMES (FAST) ---------- */
 const CHUNK_SIZE = 12;
-const RENDER_DISTANCE = 1; // 9 chunks
+const RENDER_DISTANCE = isMobile ? 1 : 1;
 const chunks = new Map();
 const chunkKey = (cx,cz)=>`${cx},${cz}`;
 const worldToChunk = (x)=>Math.floor(x / CHUNK_SIZE);
@@ -332,20 +439,16 @@ function biomeAt(x,z){
 function heightAt(x,z){
   const b = biomeAt(x,z);
   const base = noise2(x,z,0.03)*3 + noise2(x,z,0.012)*6;
-
   let dune = 0;
   if(b.dunes){
-    dune = (Math.sin((x+SEED)*0.35) + Math.cos((z-SEED)*0.35)) * 1.2
-         + noise2(x,z,0.18) * 1.0;
+    dune = (Math.sin((x+SEED)*0.35) + Math.cos((z-SEED)*0.35)) * 1.2 + noise2(x,z,0.18) * 1.0;
     dune *= 1.2;
   }
-
   const raw = 8 + base + dune + (hash2(x,z)-0.5)*0.8;
   const h = Math.floor(lerp(3, 16, clamp01((raw+20)/40)));
   return Math.max(2, h);
 }
 
-// Surface only : y=h (top) et y=h-1 (filler)
 function generateChunk(cx, cz){
   const ck = chunkKey(cx,cz);
   if(chunks.has(ck)) return;
@@ -436,51 +539,57 @@ function updateChunks(force=false){
   biomeInfoEl.textContent = biomeAt(Math.floor(camera.position.x), Math.floor(camera.position.z)).name;
 }
 
-/* ---------- INTERACTIONS (casser/poser) ---------- */
-addEventListener("mousedown", (e)=>{
-  if(!locked) return;
+/* ---------- Interactions (PC + Mobile) ---------- */
+function doBreak(){
   const hits = getHit();
   if(!hits.length) return;
-
+  const b = hits[0].object.userData;
+  const t = b.type ?? 0;
+  overrides.set(key(b.x,b.y,b.z), null);
+  removeBlockMesh(b.x,b.y,b.z);
+  spawnDrop(t, b.x, b.y, b.z);
+}
+function doPlace(){
+  const hits = getHit();
+  if(!hits.length) return;
   const hit = hits[0];
-  const obj = hit.object;
-  const b = obj.userData;
+  const b = hit.object.userData;
+  const n = hit.face?.normal;
+  if(!n) return;
 
-  if(e.button===0){
-    // casser => drop du type
-    const t = b.type ?? 0;
-    overrides.set(key(b.x,b.y,b.z), null);
-    removeBlockMesh(b.x,b.y,b.z);
-    spawnDrop(t, b.x, b.y, b.z);
+  const nx = b.x + Math.round(n.x);
+  const ny = b.y + Math.round(n.y);
+  const nz = b.z + Math.round(n.z);
 
-  } else if(e.button===2){
-    const n = hit.face?.normal;
-    if(!n) return;
+  if(!canPlaceAt(nx,ny,nz)) return;
 
-    const nx = b.x + Math.round(n.x);
-    const ny = b.y + Math.round(n.y);
-    const nz = b.z + Math.round(n.z);
-
-    if(!canPlaceAt(nx,ny,nz)) return;
-
-    // inventaire : il faut avoir au moins 1
-    if(inv[selectedBlock] <= 0){
-      toast("❌ Plus de " + BLOCKS[selectedBlock].name);
-      return;
-    }
-
-    inv[selectedBlock] -= 1;
-    updateHotbarCounts();
-
-    overrides.set(key(nx,ny,nz), selectedBlock);
-    addBlockMesh(nx,ny,nz,selectedBlock);
+  if(inv[selectedBlock] <= 0){
+    toast("❌ Plus de " + BLOCKS[selectedBlock].name);
+    return;
   }
+  inv[selectedBlock] -= 1;
+  updateHotbarCounts();
+
+  overrides.set(key(nx,ny,nz), selectedBlock);
+  addBlockMesh(nx,ny,nz,selectedBlock);
+}
+
+addEventListener("mousedown", (e)=>{
+  if(!locked || isMobile) return;
+  if(e.button===0) doBreak();
+  if(e.button===2) doPlace();
 });
+
+if(isMobile){
+  btnBreak.addEventListener("touchstart",(e)=>{ e.preventDefault(); doBreak(); },{passive:false});
+  btnPlace.addEventListener("touchstart",(e)=>{ e.preventDefault(); doPlace(); },{passive:false});
+}
 
 /* ---------- JOUR / NUIT ---------- */
 let dayCycleEnabled = true;
 let timeOfDay = 0.15;
 const DAY_SECONDS = 60;
+
 function updateDayNight(dt){
   if(dayCycleEnabled) timeOfDay = (timeOfDay + dt / DAY_SECONDS) % 1;
   const angle = timeOfDay * Math.PI * 2;
@@ -553,8 +662,15 @@ function animate(){
 
   updateDayNight(dt);
 
+  // Look mobile (padR)
+  if(isMobile && locked){
+    yaw   -= lookStick.x * 0.055;
+    pitch -= lookStick.y * 0.045;
+    pitch = Math.max(-1.55, Math.min(1.55, pitch));
+  }
+
   // sprint + FOV
-  const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
+  const sprinting = isMobile ? sprintToggleMobile : (keys.has("ShiftLeft") || keys.has("ShiftRight"));
   const targetFov = sprinting ? SPRINT_FOV : BASE_FOV;
   currentFov = currentFov + (targetFov - currentFov) * Math.min(1, FOV_SPEED * dt);
   if (Math.abs(camera.fov - currentFov) > 0.001) {
@@ -564,7 +680,7 @@ function animate(){
 
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 
-  // mouvement
+  // Move direction
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0; forward.normalize();
@@ -573,10 +689,15 @@ function animate(){
   const speed = sprinting ? 7 : 4.5;
 
   let move = new THREE.Vector3();
-  if(keys.has("KeyW")) move.add(forward);
-  if(keys.has("KeyS")) move.sub(forward);
-  if(keys.has("KeyA")) move.sub(right);
-  if(keys.has("KeyD")) move.add(right);
+  if(isMobile){
+    move.addScaledVector(forward,  moveStick.y * -1);
+    move.addScaledVector(right,    moveStick.x);
+  } else {
+    if(keys.has("KeyW")) move.add(forward);
+    if(keys.has("KeyS")) move.sub(forward);
+    if(keys.has("KeyA")) move.sub(right);
+    if(keys.has("KeyD")) move.add(right);
+  }
   if(move.lengthSq()>0) move.normalize().multiplyScalar(speed * dt);
 
   const nextX = camera.position.x + move.x;
@@ -608,7 +729,6 @@ function animate(){
   if(onGround && jumpQueued) velocityY = JUMP_FORCE;
   jumpQueued = false;
 
-  // respawn
   if(camera.position.y < -20){
     const sx = Math.floor(camera.position.x);
     const sz = Math.floor(camera.position.z);
@@ -617,7 +737,7 @@ function animate(){
     velocityY = 0;
   }
 
-  // update drops (gravité + ramassage)
+  // drops update + pickup
   for(let i=drops.length-1; i>=0; i--){
     const d = drops[i];
     d.cooldown = Math.max(0, d.cooldown - dt);
@@ -625,7 +745,6 @@ function animate(){
     d.vy += DROP_GRAV * dt;
     d.mesh.position.y += d.vy * dt;
 
-    // collision sol simple
     const underY = Math.floor(d.mesh.position.y - 0.2);
     if(hasBlockAt(d.mesh.position.x, underY, d.mesh.position.z)){
       d.mesh.position.y = underY + 1.0;
@@ -635,7 +754,6 @@ function animate(){
     d.mesh.rotation.y += d.spin * dt;
     d.mesh.rotation.x += (d.spin*0.6) * dt;
 
-    // ramassage si proche
     const dx = d.mesh.position.x - camera.position.x;
     const dy = (d.mesh.position.y - 0.6) - (camera.position.y - 1.0);
     const dz = d.mesh.position.z - camera.position.z;
